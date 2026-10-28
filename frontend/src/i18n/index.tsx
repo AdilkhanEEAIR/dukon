@@ -1,7 +1,7 @@
 // Своя лёгкая локализация: типизированные ключи по эталонному словарю, плюрализация через Intl.
 // Библиотека тут не нужна — пять словарей и один хук; зато ошибку в ключе ловит TypeScript.
 
-import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, createElement, Fragment, useCallback, useContext, useMemo, type ReactNode } from 'react'
 import { de } from './de'
 import { en, type Dict, type Plural } from './en'
 import { es } from './es'
@@ -37,7 +37,15 @@ function fill(template: string, params?: Params): string {
   return template.replace(/\{(\w+)\}/g, (_, k: string) => (k in params ? String(params[k]) : `{${k}}`))
 }
 
-export function translate(locale: Locale, key: TKey, params?: Params): string {
+// Слова о потерях в словарях обёрнуты в [[…]]: rich() рисует их красным и жирным, t() отдаёт чистый текст
+// (для aria-label, подсказок графика, тостов). Так переводчик сам решает, какое слово «бьёт» в его языке.
+const MARK = /\[\[(.+?)\]\]/g
+
+export function stripMarks(text: string): string {
+  return text.replace(MARK, '$1')
+}
+
+function raw(locale: Locale, key: TKey, params?: Params): string {
   const value = lookup(DICTS[locale], key) ?? lookup(en, key)
   if (typeof value === 'string') return fill(value, params)
   if (value && typeof value === 'object' && 'other' in (value as Plural)) {
@@ -51,6 +59,25 @@ export function translate(locale: Locale, key: TKey, params?: Params): string {
   return key
 }
 
+export function translate(locale: Locale, key: TKey, params?: Params): string {
+  return stripMarks(raw(locale, key, params))
+}
+
+/** Та же строка, но отмеченные слова — <strong class="loss-word">. Порядок частей сохраняется. */
+export function translateRich(locale: Locale, key: TKey, params?: Params): ReactNode {
+  const text = raw(locale, key, params)
+  const parts: ReactNode[] = []
+  let last = 0
+  for (const m of text.matchAll(MARK)) {
+    const at = m.index ?? 0
+    if (at > last) parts.push(text.slice(last, at))
+    parts.push(createElement('strong', { key: at, className: 'loss-word' }, m[1]))
+    last = at + m[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : createElement(Fragment, null, ...parts)
+}
+
 /** Массивы (шаги лендинга, правила агента) — отдельным доступом, чтобы t() оставался строковым. */
 export function translateList<T>(locale: Locale, key: TKey): T[] {
   const value = lookup(DICTS[locale], key) ?? lookup(en, key)
@@ -61,6 +88,7 @@ interface I18nValue {
   locale: Locale
   setLocale: (l: Locale) => void
   t: (key: TKey, params?: Params) => string
+  rich: (key: TKey, params?: Params) => ReactNode
   list: <T>(key: TKey) => T[]
 }
 
@@ -68,8 +96,9 @@ const I18nCtx = createContext<I18nValue | null>(null)
 
 export function I18nProvider({ locale, setLocale, children }: { locale: Locale; setLocale: (l: Locale) => void; children: ReactNode }) {
   const t = useCallback((key: TKey, params?: Params) => translate(locale, key, params), [locale])
+  const rich = useCallback((key: TKey, params?: Params) => translateRich(locale, key, params), [locale])
   const list = useCallback(<T,>(key: TKey) => translateList<T>(locale, key), [locale])
-  const value = useMemo(() => ({ locale, setLocale, t, list }), [locale, setLocale, t, list])
+  const value = useMemo(() => ({ locale, setLocale, t, rich, list }), [locale, setLocale, t, rich, list])
   return <I18nCtx.Provider value={value}>{children}</I18nCtx.Provider>
 }
 

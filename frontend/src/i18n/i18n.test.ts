@@ -1,4 +1,5 @@
-import { DEFAULT_LOCALE, DICTS, LOCALES, isLocale, translate, translateList } from './index'
+import { isValidElement, type ReactElement } from 'react'
+import { DEFAULT_LOCALE, DICTS, LOCALES, isLocale, stripMarks, translate, translateList, translateRich } from './index'
 
 function keysOf(obj: unknown, prefix = ''): string[] {
   if (Array.isArray(obj)) return [prefix]
@@ -92,6 +93,44 @@ describe('языки', () => {
     for (const l of LOCALES) {
       expect(translate(l, 'common.madeBy')).toMatch(/Adilkhan|Адилхан/)
       expect(translate(l, 'branches.worst', { name: 'X' })).toContain('X')
+    }
+  })
+})
+
+describe('слова-потери', () => {
+  const LOSS_KEYS = ['home.lossTitle', 'shelves.losing', 'item.loss', 'branches.chartTitle', 'branches.total', 'branches.worst'] as const
+
+  it.each(LOCALES)('%s: в каждой строке о потерях отмечено слово', (locale) => {
+    for (const key of LOSS_KEYS) {
+      const raw = key.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown>)[k], DICTS[locale])
+      expect(raw, `${locale}:${key}`).toMatch(/\[\[.+?\]\]/)
+    }
+  })
+
+  it('t() отдаёт чистый текст без скобок', () => {
+    expect(translate('ru', 'branches.total')).toBe('Все филиалы теряют')
+    expect(translate('en', 'branches.worst', { name: 'Manas 47' })).toBe('Biggest loss: Manas 47')
+    expect(stripMarks('a [[b]] c [[d]]')).toBe('a b c d')
+  })
+
+  it('rich() выделяет слово в <strong class="loss-word">, остальной текст сохраняется', () => {
+    const node = translateRich('ru', 'branches.worst', { name: 'Manas 47' }) as ReactElement<{ children: unknown[] }>
+    expect(isValidElement(node)).toBe(true)
+    const parts = node.props.children
+    expect(parts[0]).toBe('Больше всего ')
+    const strong = parts[1] as ReactElement<{ className: string; children: string }>
+    expect(strong.type).toBe('strong')
+    expect(strong.props.className).toBe('loss-word')
+    expect(strong.props.children).toBe('теряет')
+    expect(parts[2]).toBe(': Manas 47')
+    // без отметок — просто строка
+    expect(translateRich('ru', 'common.back')).toBe('Назад')
+  })
+
+  it('настройка анимаций переведена на все языки', () => {
+    for (const l of LOCALES) {
+      expect(translate(l, 'settings.motion')).not.toBe('settings.motion')
+      expect(translate(l, 'settings.motionSystemCalm').length).toBeGreaterThan(20)
     }
   })
 })
