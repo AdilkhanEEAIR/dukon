@@ -48,7 +48,7 @@ export function ChartCard({ title, children, table }: { title: ReactNode; childr
 
 // ---- было → стало
 export function StockChart({ changes, limit = 7 }: { changes: ItemChange[]; limit?: number }) {
-  const { t } = useI18n()
+  const { t, product } = useI18n()
   const c = useChartColors()
   const rows = useMemo(
     () =>
@@ -72,7 +72,7 @@ export function StockChart({ changes, limit = 7 }: { changes: ItemChange[]; limi
       xAxis: { type: 'value', minInterval: 1, splitLine: { lineStyle: { color: c.line } }, axisLabel: axisText(c) },
       yAxis: {
         type: 'category',
-        data: rows.map((r) => r.name),
+        data: rows.map((r) => product(r.name)),
         axisTick: { show: false },
         axisLine: { show: false },
         axisLabel: { ...axisText(c), color: c.ink2, width: labelWidth(), overflow: 'truncate' },
@@ -98,7 +98,7 @@ export function StockChart({ changes, limit = 7 }: { changes: ItemChange[]; limi
         },
       ],
     }),
-    [rows, c, t],
+    [rows, c, t, product],
   )
 
   return (
@@ -116,7 +116,7 @@ export function StockChart({ changes, limit = 7 }: { changes: ItemChange[]; limi
           <tbody>
             {[...rows].reverse().map((r) => (
               <tr key={r.sku}>
-                <td>{r.name}</td>
+                <td>{product(r.name)}</td>
                 <td>{r.before}</td>
                 <td>{r.after}</td>
               </tr>
@@ -227,7 +227,7 @@ export function ForecastChart({ history, change, caption }: { history: Point[]; 
 }
 
 // ---- филиалы
-export function BranchesChart({ rows, format }: { rows: { id: string; name: string; value: number }[]; format: (v: number) => string }) {
+export function BranchesChart({ rows, format, alt }: { rows: { id: string; name: string; value: number }[]; format: (v: number) => string; alt?: (v: number) => string }) {
   const { t, rich } = useI18n()
   const c = useChartColors()
   const sorted = useMemo(() => [...rows].sort((a, b) => a.value - b.value), [rows])
@@ -239,7 +239,8 @@ export function BranchesChart({ rows, format }: { rows: { id: string; name: stri
       animationDelay: (i: number) => i * 60,
       aria: { enabled: true },
       grid: { left: 8, right: 96, top: 8, bottom: 8, containLabel: true },
-      tooltip: { ...tooltipBase(c), trigger: 'item', valueFormatter: (v: number) => format(v) },
+      // В подсказке — та же сумма и «≈ $», если показаны сомы: подписи столбцов оставляем короткими.
+      tooltip: { ...tooltipBase(c), trigger: 'item', valueFormatter: (v: number) => (alt && v ? `${format(v)}  ≈ ${alt(v)}` : format(v)) },
       // У каждого столбца своя подпись на конце — ось с делениями тут только шумит.
       xAxis: { type: 'value', splitLine: { show: false }, axisLabel: { show: false } },
       yAxis: { type: 'category', data: sorted.map((r) => r.name), axisTick: { show: false }, axisLine: { show: false }, axisLabel: { ...axisText(c), color: c.ink2, width: labelWidth(), overflow: 'truncate' } },
@@ -268,7 +269,7 @@ export function BranchesChart({ rows, format }: { rows: { id: string; name: stri
         },
       ],
     }),
-    [sorted, c, t, format],
+    [sorted, c, t, format, alt],
   )
 
   return (

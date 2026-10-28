@@ -10,13 +10,13 @@ import { useSettings } from '../app/settings'
 import { useShops } from '../app/shops'
 import { Button } from '../components/Button'
 import { BranchesChart } from '../components/charts/Charts'
-import { CountUp } from '../components/CountUp'
 import { PageActions } from '../components/Nav'
 import { Pill } from '../components/Pill'
 import { ErrorState, Notice, ReportSkeleton } from '../components/States'
 import { useAsync } from '../hooks/useAsync'
 import { useI18n } from '../i18n'
 import { formatMoney, formatShortDate, formatTime } from '../lib/format'
+import { Money } from '../components/Money'
 
 interface Overview {
   rows: BranchSummary[]
@@ -65,6 +65,7 @@ function BranchesBody({ overview }: { overview: Overview }) {
   const navigate = useNavigate()
   const { rows, demo } = overview
   const fmt = useCallback((v: number) => formatMoney(v, locale, settings.currency), [locale, settings.currency])
+  const usd = useCallback((v: number) => formatMoney(v, locale, 'USD'), [locale])
   const total = rows.reduce((a, r) => a + r.loss_per_day, 0)
   const worst = [...rows].sort((a, b) => b.loss_per_day - a.loss_per_day)[0]
 
@@ -76,13 +77,13 @@ function BranchesBody({ overview }: { overview: Overview }) {
         <div className="stack" style={{ gap: 16 }}>
           <div className="sheet sheet--pad stack lift" style={{ gap: 6 }}>
             <span className="loss-label" data-testid="branches-total-label">{rich('branches.total')}</span>
-            <CountUp value={total} format={fmt} className="num-xl c-out" testId="branches-total" />
+            <Money kgs={total} className="num-xl c-out" altBlock testId="branches-total" />
             <span className="small">
               {t('common.perDay')} · ≈ {fmt(total * 30)} {t('common.perMonth')}
             </span>
             {worst && worst.loss_per_day > 0 && <span className="body-2" data-testid="branches-worst">{rich('branches.worst', { name: worst.shop.name })}</span>}
           </div>
-          <BranchesChart rows={rows.map((r) => ({ id: r.shop.id, name: r.shop.name, value: r.loss_per_day }))} format={fmt} />
+          <BranchesChart rows={rows.map((r) => ({ id: r.shop.id, name: r.shop.name, value: r.loss_per_day }))} format={fmt} alt={settings.currency === 'KGS' ? usd : undefined} />
         </div>
 
         <div className="sheet" style={{ padding: '2px 18px' }}>
@@ -106,7 +107,7 @@ function BranchesBody({ overview }: { overview: Overview }) {
                     {r.walks > 0 ? (
                       <span className="branch-row__stats">
                         <span>
-                          <b className={r.loss_per_day > 0 ? 'c-out' : undefined}>{fmt(r.loss_per_day)}</b> {t('common.perDay')}
+                          <Money kgs={r.loss_per_day} className={r.loss_per_day > 0 ? 'branch-loss c-out' : 'branch-loss'} /> {t('common.perDay')}
                         </span>
                         <span>
                           <b>{r.out_of_stock}</b> {t('branches.out')}
