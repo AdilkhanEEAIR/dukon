@@ -1,8 +1,8 @@
 // Навигация: таббар снизу (телефон, планшет) и рейл слева (ПК), переключатель магазина,
 // пилюля режима, тема (светлая/тёмная) с круговым раскрытием и выбор языка.
 
-import { Activity, Bell, Bot, Building2, FlaskConical, House, Info, Languages, MapPin, Moon, Package, PackageSearch, Plus, Radio, ScanLine, Settings, Store, Sun } from 'lucide-react'
-import { AnimatePresence, motion } from 'motion/react'
+import { Activity, Bell, Bot, Building2, FlaskConical, House, Info, Languages, MapPin, Package, PackageSearch, Plus, Radio, ScanLine, Settings, Store } from 'lucide-react'
+import { motion } from 'motion/react'
 import type { MouseEvent } from 'react'
 import { flushSync } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -14,6 +14,7 @@ import { DICTS, LOCALES, useI18n, useT, type Locale } from '../i18n'
 import { IconButton } from './Button'
 import { Dropdown } from './Dropdown'
 import { Pill } from './Pill'
+import { ThemeIcon } from './ThemeIcon'
 
 export const REPO_URL = 'https://github.com/AdilkhanEEAIR/dukon'
 
@@ -40,11 +41,11 @@ export function ModePill({ compact }: { compact?: boolean }) {
 /** Светлая ↔ тёмная. Круговое раскрытие из кнопки через View Transitions; без поддержки — просто меняется. */
 export function ThemeToggle({ outline }: { outline?: boolean }) {
   const t = useT()
-  const { update, resolvedTheme } = useSettings()
+  const { update, resolvedTheme, resolvedMotion } = useSettings()
   const next = resolvedTheme === 'dark' ? 'light' : 'dark'
   const onClick = (e: MouseEvent<HTMLButtonElement>) => {
     const doc = document as Document & { startViewTransition?: (cb: () => void) => { ready: Promise<void> } }
-    if (!doc.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (!doc.startViewTransition || resolvedMotion === 'calm') {
       update({ theme: next })
       return
     }
@@ -55,24 +56,15 @@ export function ThemeToggle({ outline }: { outline?: boolean }) {
     void transition.ready.then(() => {
       document.documentElement.animate(
         { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
-        { duration: 450, easing: 'cubic-bezier(0.23, 1, 0.32, 1)', pseudoElement: '::view-transition-new(root)' },
+        { duration: 620, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', pseudoElement: '::view-transition-new(root)' },
       )
     })
   }
   return (
     <IconButton label={t('theme.toggle')} outline={outline} className="theme-btn" data-theme={resolvedTheme} data-testid="theme-toggle" onClick={onClick}>
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.span
-          key={resolvedTheme}
-          className="theme-btn__icon"
-          initial={{ rotate: -90, scale: 0.6, opacity: 0 }}
-          animate={{ rotate: 0, scale: 1, opacity: 1 }}
-          exit={{ rotate: 90, scale: 0.6, opacity: 0 }}
-          transition={{ duration: 0.28, ease: [0.23, 1, 0.32, 1] }}
-        >
-          {resolvedTheme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}
-        </motion.span>
-      </AnimatePresence>
+      <span className="theme-btn__icon">
+        <ThemeIcon dark={resolvedTheme === 'dark'} animate={resolvedMotion === 'full'} />
+      </span>
     </IconButton>
   )
 }
