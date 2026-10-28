@@ -66,6 +66,10 @@ Frontend: React 19, TypeScript strict, `motion` for springs and layout animation
 
 There are no accounts. On first launch the app creates a device code; shops and branches are stored on the server (SQLite) under that code. Enter the same code on another phone in Settings to see the same shops. The Branches screen compares loss per day across shops; until your shops have walks it shows a demo chain of three branches.
 
+## Map
+
+Branches are shown on a vector map (MapLibre GL with OpenFreeMap tiles, no API key; light and dark styles follow the app theme). A shop gets its point from the phone's location or a tap on the map; the address is filled by OpenStreetMap Nominatim reverse geocoding (one request per action, as its usage policy asks). Map data © OpenStreetMap contributors, © OpenMapTiles.
+
 ## Live mode and credit protection
 
 Live analysis (real Meta API calls) is enabled only when `PROVIDER=meta` and a key is set. Judges use the demo code from the submission (`DEMO_KEY`) in the "Новый обход" screen. Every call is rate-limited per IP and capped by a daily budget; identical photos are served from cache.
