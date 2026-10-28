@@ -104,11 +104,11 @@ export const api = {
 
   shops: (deviceId: string) => request<Shop[]>('/shops', { headers: device(deviceId) }),
   demoShops: () => request<Shop[]>('/shops/demo'),
-  createShop: (deviceId: string, body: { name: string; address?: string }) => {
+  createShop: (deviceId: string, body: { name: string; address?: string; lat?: number | null; lng?: number | null }) => {
     const init = json(body)
     return request<Shop>('/shops', { ...init, method: 'POST', headers: { ...(init.headers as Record<string, string>), ...device(deviceId) } })
   },
-  updateShop: (deviceId: string, id: string, body: { name?: string; address?: string }) => {
+  updateShop: (deviceId: string, id: string, body: { name?: string; address?: string; lat?: number | null; lng?: number | null }) => {
     const init = json(body)
     return request<Shop>(`/shops/${encodeURIComponent(id)}`, { ...init, method: 'PATCH', headers: { ...(init.headers as Record<string, string>), ...device(deviceId) } })
   },

@@ -50,6 +50,14 @@ export interface Shop {
   address: string
   created_at: string
   demo: boolean
+  /** Точка на карте; нет — магазин на карте не показывается. */
+  lat?: number | null
+  lng?: number | null
+}
+
+export interface GeoPoint {
+  lat: number
+  lng: number
 }
 
 export interface BranchSummary {

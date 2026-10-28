@@ -3,8 +3,11 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
-import type { Shop } from '../api/types'
+import type { GeoPoint, Shop } from '../api/types'
 import { useSettings } from './settings'
+
+/** Изменения магазина: lat/lng = null убирает точку с карты. */
+export type ShopPatch = { name?: string; address?: string; lat?: number | null; lng?: number | null }
 
 export type ShopsStatus = 'loading' | 'ready' | 'error'
 
@@ -14,8 +17,8 @@ interface ShopsValue {
   shops: Shop[]
   current: Shop | null
   select: (id: string) => void
-  create: (name: string, address?: string) => Promise<Shop>
-  update: (id: string, patch: { name?: string; address?: string }) => Promise<Shop>
+  create: (name: string, address?: string, point?: GeoPoint | null) => Promise<Shop>
+  update: (id: string, patch: ShopPatch) => Promise<Shop>
   remove: (id: string) => Promise<void>
   reload: () => Promise<void>
 }
@@ -101,8 +104,8 @@ export function ShopsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const create = useCallback(
-    async (name: string, address = '') => {
-      const shop = await api.createShop(deviceId, { name, address })
+    async (name: string, address = '', point: GeoPoint | null = null) => {
+      const shop = await api.createShop(deviceId, point ? { name, address, lat: point.lat, lng: point.lng } : { name, address })
       setShops((prev) => {
         const next = [...prev, shop]
         write(CACHE, next)
@@ -116,7 +119,7 @@ export function ShopsProvider({ children }: { children: ReactNode }) {
   )
 
   const update = useCallback(
-    async (id: string, patch: { name?: string; address?: string }) => {
+    async (id: string, patch: ShopPatch) => {
       const shop = await api.updateShop(deviceId, id, patch)
       setShops((prev) => {
         const next = prev.map((s) => (s.id === id ? shop : s))
