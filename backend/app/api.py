@@ -163,12 +163,23 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
             raise HTTPException(
                 409, detail={"code": "too_many_shops", "message": f"Не больше {MAX_SHOPS_PER_DEVICE} магазинов"}
             )
-        shop = Shop(id="shop-" + uuid.uuid4().hex[:10], name=body.name, address=body.address)
+        if (body.lat is None) != (body.lng is None):
+            raise HTTPException(422, detail={"code": "validation", "message": "Нужны обе координаты: lat и lng"})
+        shop = Shop(
+            id="shop-" + uuid.uuid4().hex[:10], name=body.name, address=body.address, lat=body.lat, lng=body.lng
+        )
         return storage.create_shop(owner, shop)
 
     @app.patch("/shops/{shop_id}", response_model=Shop)
     def update_shop(shop_id: str, body: ShopPatch, owner: str = Depends(device_id)):
-        shop = storage.update_shop(shop_id, owner, body.name, body.address)
+        # Координаты меняются только парой: прислали одну — это ошибка, прислали обе (или обе null) — меняем.
+        sent = body.model_fields_set & {"lat", "lng"}
+        if sent and sent != {"lat", "lng"}:
+            raise HTTPException(422, detail={"code": "validation", "message": "Нужны обе координаты: lat и lng"})
+        if sent and (body.lat is None) != (body.lng is None):
+            raise HTTPException(422, detail={"code": "validation", "message": "Нужны обе координаты: lat и lng"})
+        location = (body.lat, body.lng) if sent else None
+        shop = storage.update_shop(shop_id, owner, body.name, body.address, location)
         if shop is None:
             raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
         return shop

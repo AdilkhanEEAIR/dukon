@@ -65,6 +65,11 @@ class Storage:
             if "shop_id" not in cols:
                 self._conn.execute("ALTER TABLE walks ADD COLUMN shop_id TEXT")
             self._conn.execute("CREATE INDEX IF NOT EXISTS walks_shop ON walks (shop_id, source, created_at)")
+            # Точка магазина на карте появилась позже — добавляем колонки в старую базу.
+            shop_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(shops)")}
+            for col in ("lat", "lng"):
+                if col not in shop_cols:
+                    self._conn.execute(f"ALTER TABLE shops ADD COLUMN {col} REAL")
 
     # ---- обходы
     def save_walk(self, walk: Walk) -> None:
@@ -111,8 +116,8 @@ class Storage:
     def create_shop(self, owner: str, shop: Shop) -> Shop:
         with self._lock, self._conn:
             self._conn.execute(
-                "INSERT INTO shops (id, owner, name, address, created_at) VALUES (?, ?, ?, ?, ?)",
-                (shop.id, owner, shop.name, shop.address, shop.created_at.isoformat()),
+                "INSERT INTO shops (id, owner, name, address, created_at, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (shop.id, owner, shop.name, shop.address, shop.created_at.isoformat(), shop.lat, shop.lng),
             )
         return shop
 
@@ -127,12 +132,24 @@ class Storage:
     def count_shops(self, owner: str) -> int:
         return int(self._conn.execute("SELECT COUNT(*) AS n FROM shops WHERE owner = ?", (owner,)).fetchone()["n"])
 
-    def update_shop(self, shop_id: str, owner: str, name: str | None, address: str | None) -> Shop | None:
+    def update_shop(
+        self,
+        shop_id: str,
+        owner: str,
+        name: str | None,
+        address: str | None,
+        location: tuple[float | None, float | None] | None = None,
+    ) -> Shop | None:
+        """location=None — точку не трогаем; (None, None) — убираем с карты."""
         with self._lock, self._conn:
             if name is not None:
                 self._conn.execute("UPDATE shops SET name = ? WHERE id = ? AND owner = ?", (name, shop_id, owner))
             if address is not None:
                 self._conn.execute("UPDATE shops SET address = ? WHERE id = ? AND owner = ?", (address, shop_id, owner))
+            if location is not None:
+                self._conn.execute(
+                    "UPDATE shops SET lat = ?, lng = ? WHERE id = ? AND owner = ?", (*location, shop_id, owner)
+                )
         return self.get_shop(shop_id, owner)
 
     def delete_shop(self, shop_id: str, owner: str) -> bool:
@@ -148,8 +165,8 @@ class Storage:
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM shops WHERE owner = ?", (owner,))
             self._conn.executemany(
-                "INSERT INTO shops (id, owner, name, address, created_at) VALUES (?, ?, ?, ?, ?)",
-                [(s.id, owner, s.name, s.address, s.created_at.isoformat()) for s in shops],
+                "INSERT INTO shops (id, owner, name, address, created_at, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(s.id, owner, s.name, s.address, s.created_at.isoformat(), s.lat, s.lng) for s in shops],
             )
 
     @staticmethod
@@ -160,6 +177,8 @@ class Storage:
             address=row["address"],
             created_at=row["created_at"],
             demo=row["owner"] == "demo",
+            lat=row["lat"],
+            lng=row["lng"],
         )
 
     # ---- кэш фото

@@ -169,6 +169,9 @@ class Shop(BaseModel):
     address: str = ""
     created_at: datetime = Field(default_factory=utcnow)
     demo: bool = False
+    # Точка на карте — необязательна: адрес можно вписать руками, а можно взять из геолокации телефона.
+    lat: float | None = None
+    lng: float | None = None
 
 
 def _clean(value: str | None) -> str | None:
@@ -179,6 +182,8 @@ def _clean(value: str | None) -> str | None:
 class ShopIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     address: str = Field(default="", max_length=120)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
 
     @field_validator("name", "address", mode="before")
     @classmethod
@@ -187,8 +192,12 @@ class ShopIn(BaseModel):
 
 
 class ShopPatch(BaseModel):
+    """Меняются только присланные поля. lat/lng: null — убрать точку с карты, отсутствие поля — не трогать."""
+
     name: str | None = Field(default=None, min_length=1, max_length=60)
     address: str | None = Field(default=None, max_length=120)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lng: float | None = Field(default=None, ge=-180, le=180)
 
     @field_validator("name", "address", mode="before")
     @classmethod

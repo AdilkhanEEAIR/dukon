@@ -51,13 +51,24 @@ def demo_shops(now: datetime | None = None) -> list[Shop]:
     now = now or datetime.now(timezone.utc)
     base = now - timedelta(days=30)
     return [
-        Shop(id="demo-chuy", name="Chuy 120", address="Chuy Ave 120, Bishkek", created_at=base, demo=True),
+        # Координаты примерные — для карты филиалов в демо.
+        Shop(
+            id="demo-chuy",
+            name="Chuy 120",
+            address="Chuy Ave 120, Bishkek",
+            created_at=base,
+            demo=True,
+            lat=42.8766,
+            lng=74.6046,
+        ),
         Shop(
             id="demo-manas",
             name="Manas 47",
             address="Manas Ave 47, Bishkek",
             created_at=base + timedelta(minutes=1),
             demo=True,
+            lat=42.8665,
+            lng=74.5873,
         ),
         Shop(
             id="demo-osh",
@@ -65,6 +76,8 @@ def demo_shops(now: datetime | None = None) -> list[Shop]:
             address="Beyshenalieva St 2, Bishkek",
             created_at=base + timedelta(minutes=2),
             demo=True,
+            lat=42.8748,
+            lng=74.5694,
         ),
     ]
 

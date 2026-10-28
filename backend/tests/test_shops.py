@@ -126,3 +126,53 @@ def test_old_database_gets_shop_column(tmp_path):
     cols = {r["name"] for r in s._conn.execute("PRAGMA table_info(walks)")}
     assert "shop_id" in cols
     s.close()
+
+
+def test_shop_location_create_patch_clear(client):
+    body = {"name": "Ош базар", "address": "Бейшеналиевой 2", "lat": 42.8748, "lng": 74.5694}
+    r = client.post("/shops", json=body, headers=DEV)
+    assert r.status_code == 201
+    shop = r.json()
+    assert (shop["lat"], shop["lng"]) == (42.8748, 74.5694)
+
+    # Поменять адрес, не трогая точку
+    r = client.patch(f"/shops/{shop['id']}", json={"address": "Бейшеналиевой 3"}, headers=DEV)
+    assert (r.json()["lat"], r.json()["lng"]) == (42.8748, 74.5694)
+    # Переставить точку
+    r = client.patch(f"/shops/{shop['id']}", json={"lat": 42.87, "lng": 74.6}, headers=DEV)
+    assert (r.json()["lat"], r.json()["lng"]) == (42.87, 74.6)
+    # Убрать с карты
+    r = client.patch(f"/shops/{shop['id']}", json={"lat": None, "lng": None}, headers=DEV)
+    assert (r.json()["lat"], r.json()["lng"]) == (None, None)
+
+
+def test_shop_location_needs_both_coordinates_in_range(client):
+    assert client.post("/shops", json={"name": "A", "lat": 42.8}, headers=DEV).status_code == 422
+    assert client.post("/shops", json={"name": "A", "lat": 95, "lng": 74}, headers=DEV).status_code == 422
+    shop = client.post("/shops", json={"name": "A"}, headers=DEV).json()
+    assert shop["lat"] is None
+    assert client.patch(f"/shops/{shop['id']}", json={"lat": 42.8}, headers=DEV).status_code == 422
+    assert client.patch(f"/shops/{shop['id']}", json={"lat": 42.8, "lng": None}, headers=DEV).status_code == 422
+
+
+def test_demo_branches_have_map_points(client):
+    demo = client.get("/shops/demo").json()
+    assert len(demo) == 3
+    assert all(s["lat"] and s["lng"] for s in demo)
+
+
+def test_old_database_gets_location_columns(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.sqlite3"
+    con = sqlite3.connect(path)
+    con.executescript(
+        "CREATE TABLE shops (id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL,"
+        " address TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);"
+        "INSERT INTO shops VALUES ('s1', 'device-aaaa-1111', 'Old', '', '2026-10-01T00:00:00+00:00');"
+    )
+    con.commit()
+    con.close()
+    storage = Storage(str(path))
+    shop = storage.get_shop("s1", "device-aaaa-1111")
+    assert shop is not None and shop.lat is None
