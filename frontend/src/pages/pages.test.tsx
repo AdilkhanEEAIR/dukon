@@ -2,7 +2,8 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { AppRoutes, Providers } from '../App'
-import { DEVICE, demoHealth, diff, happyRoutes, jsonResponse, mockFetch, mineOverview, seedSettings, shops, walk, type Routes } from '../test/fixtures'
+import { DEVICE, demoHealth, diff, happyRoutes, jsonResponse, mockFetch, mineOverview, seedSettings, shops, walk, walkBefore, type Routes } from '../test/fixtures'
+import { dayKey } from '../components/WalkCalendar'
 
 function renderAt(path: string) {
   return render(
@@ -38,7 +39,11 @@ describe('Лендинг', () => {
   it('«Посмотреть демо» работает без магазина', async () => {
     mockFetch(noShops)
     renderAt('/app/shelves?demo=1')
-    expect(await screen.findByTestId('changes-list')).toHaveTextContent('Coca-Cola 1 л')
+    // Без настроек интерфейс английский — и названия товаров тоже: «1 л» → «1 L», «Молоко Эльвест» → «Elvest milk»
+    const list = await screen.findByTestId('changes-list')
+    expect(list).toHaveTextContent('Coca-Cola 1 L')
+    expect(list).toHaveTextContent('Elvest milk 6% 1 L')
+    expect(list).not.toHaveTextContent('Молоко')
   })
 })
 
@@ -187,6 +192,38 @@ describe('Полки и товар', () => {
     expect((fn.mock.calls as [string][]).some(([u]) => u.includes('/walks?source=demo&shop_id=demo-chuy'))).toBe(true)
   })
 
+  it('календарь: неделя вкладками, день с обходом открывает его отчёт, месяц — по кнопке', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app/shelves/demo-tue')
+    const cal = await screen.findByTestId('walk-calendar')
+    const tueKey = dayKey(new Date(walk.created_at))
+    const sunKey = dayKey(new Date(walkBefore.created_at))
+    expect(within(cal).getByTestId(`day-${tueKey}`)).toHaveAttribute('aria-selected', 'true')
+    // день без обхода неактивен
+    const tabs = within(cal).getAllByRole('tab')
+    expect(tabs).toHaveLength(7)
+    expect(tabs.filter((t) => (t as HTMLButtonElement).disabled).length).toBeGreaterThanOrEqual(5)
+    // месяц: открывается по кнопке, выделенные дни — с обходами
+    await userEvent.click(within(cal).getByTestId('calendar-open'))
+    expect(await screen.findByTestId('calendar')).toBeInTheDocument()
+    expect(screen.getByTestId(`cal-${sunKey}`)).not.toBeDisabled()
+    await userEvent.click(screen.getByTestId(`cal-${sunKey}`))
+    // выбранный день открывает свой обход: у воскресного нет предыдущего
+    expect(await screen.findByText(/первый обход/i)).toBeInTheDocument()
+    expect(within(screen.getByTestId('walk-calendar')).getByTestId(`day-${sunKey}`)).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('названия товаров и пояснения — на языке интерфейса', async () => {
+    seedSettings({ locale: 'en' })
+    mockFetch(happyRoutes)
+    renderAt('/app/shelves')
+    const list = await screen.findByTestId('changes-list')
+    await userEvent.click(within(list).getByText('Elvest milk 6% 1 L'))
+    const drawer = await screen.findByTestId('drawer')
+    expect(within(drawer).getByRole('heading', { level: 2 })).toHaveTextContent('Elvest milk 6% 1 L')
+    expect(within(drawer).getByText(/the shelf is empty/)).toBeInTheDocument()
+  })
+
   it('не найденный обход → понятная ошибка', async () => {
     mockFetch({ ...happyRoutes, '/walks/zzz': () => jsonResponse({ detail: { code: 'not_found' } }, 404), '/walks/zzz/diff': () => jsonResponse({ detail: { code: 'not_found' } }, 404) })
     renderAt('/app/shelves/zzz')
@@ -267,7 +304,8 @@ describe('Филиалы', () => {
     expect(await screen.findByText(/показываем демо-сеть/)).toBeInTheDocument()
     expect(screen.getAllByTestId('branch-row')).toHaveLength(3)
     // 765 + 1248 + 0 сом в день по трём филиалам
-    expect(screen.getByTestId('branches-total').getAttribute('aria-label')).toMatch(/^2\s013\sсом$/)
+    // сумма в сомах и рядом — в долларах по курсу НБКР
+    expect(screen.getByTestId('branches-total').getAttribute('aria-label')).toMatch(/^2\s013\sсом \(≈ 23,02\s\$\)$/)
     expect(screen.getByTestId('branches-worst')).toHaveTextContent('Больше всего теряет: Manas 47')
     // слово о потерях — красным и жирным, отдельным элементом
     expect(within(screen.getByTestId('branches-worst')).getByText('теряет')).toHaveClass('loss-word')
@@ -301,6 +339,8 @@ describe('Заказы', () => {
     expect(total.textContent).not.toBe(before)
     await userEvent.click(within(lines[0]).getByRole('button', { name: '−' }))
     expect(total.textContent).toBe(before)
+    // итог в сомах — с подписью в долларах
+    expect(total).toHaveTextContent('≈')
   })
   it('пусто, когда заказывать нечего', async () => {
     mockFetch({ ...happyRoutes, '/walks/demo-tue/diff': () => jsonResponse({ ...diff, changes: diff.changes.map((c) => ({ ...c, suggested_order: 0 })) }) })

@@ -19,7 +19,7 @@ import { AuthorLine, LangSwitch, ModePill, ShopSwitcher, ThemeToggle } from './N
 import { Pill, StatusPill } from './Pill'
 import { LossTag } from './PriceTag'
 import { ProductIcon, productKind } from './ProductIcon'
-import { ThemeIcon } from './ThemeIcon'
+import { MoonGlyph, SunGlyph } from './ThemeIcon'
 import { Segmented } from './Segmented'
 import { ShelfArt } from './ShelfArt'
 import { EmptyState, ErrorState, Notice, ReportSkeleton } from './States'
@@ -431,14 +431,32 @@ describe('Иконки товаров', () => {
   })
 })
 
-describe('Иконка темы', () => {
-  it('одна иконка: солнце в светлой, луна в тёмной', () => {
-    const { container, rerender } = render(<ThemeIcon dark={false} />)
-    expect(container.querySelector('svg')).toHaveClass('theme-icon--sun')
-    rerender(<ThemeIcon dark />)
-    expect(container.querySelector('svg')).toHaveClass('theme-icon--moon')
-    // маска своя у каждой иконки — две кнопки на странице не путают друг другу «укус» луны
-    expect(container.querySelector('mask')?.id).toMatch(/^theme-mask-/)
+describe('Переключатель темы', () => {
+  it('капсула-переключатель: роль switch, состояние и бегунок следуют теме', async () => {
+    seedSettings({ theme: 'light' })
+    mockFetch(happyRoutes)
+    withApp(<ThemeToggle />)
+    const sw = screen.getByRole('switch')
+    expect(sw).toHaveAttribute('aria-checked', 'false')
+    expect(sw).toHaveAttribute('data-theme', 'light')
+    await userEvent.click(sw)
+    expect(sw).toHaveAttribute('aria-checked', 'true')
+    expect(sw).toHaveAttribute('data-theme', 'dark')
+  })
+
+  it('знаки темы — тонкие линии в цвет текста, без заливки', () => {
+    const { container } = render(
+      <>
+        <SunGlyph />
+        <MoonGlyph />
+      </>,
+    )
+    const svgs = container.querySelectorAll('svg')
+    expect(svgs).toHaveLength(2)
+    svgs.forEach((svg) => {
+      expect(svg).toHaveAttribute('fill', 'none')
+      expect(svg).toHaveAttribute('stroke', 'currentColor')
+    })
   })
 })
 
