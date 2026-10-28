@@ -3,13 +3,14 @@
 
 import { WifiOff } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion, useIsPresent, type Transition } from 'motion/react'
-import { Component, useCallback, useState, type ErrorInfo, type ReactNode } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useOutlet } from 'react-router-dom'
-import { DataProvider } from './app/data'
-import { ModeProvider } from './app/mode'
+import { Component, useCallback, useEffect, useState, type ErrorInfo, type ReactNode } from 'react'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useOutlet } from 'react-router-dom'
+import { DataProvider, useLatest } from './app/data'
+import { ModeProvider, useMode } from './app/mode'
 import { NotificationsProvider } from './app/notifications'
 import { SettingsProvider, useSettings } from './app/settings'
 import { ShopsProvider, useShops } from './app/shops'
+import { DataModeSwitch } from './components/DataModeSwitch'
 import { Rail, TabBar } from './components/Nav'
 import { Skeleton, ErrorState } from './components/States'
 import { ToastProvider } from './components/Toast'
@@ -109,25 +110,46 @@ function OfflineBanner() {
   )
 }
 
-/** Оболочка приложения: рейл на ПК, таббар на телефоне. Без магазина — в онбординг,
- *  кроме демо-просмотра (?demo=1): судья смотрит продукт без регистрации. */
+/** Ссылка вида /app/shelves?demo=1 (из README, с лендинга) включает демо-данные и убирает параметр из адреса.
+ *  Явный выбор «демо» запоминаем, только если иначе были бы живые данные: без кредитов демо и так включено,
+ *  а запомненный выбор держал бы демо и после того, как кредиты появятся. */
+function useDemoLink() {
+  const { search, pathname } = useLocation()
+  const navigate = useNavigate()
+  const { mode, status, setView } = useMode()
+  const wantDemo = new URLSearchParams(search).get('demo') === '1'
+  useEffect(() => {
+    if (!wantDemo || status === 'loading') return
+    if (mode === 'live') setView('demo')
+    navigate(pathname, { replace: true })
+  }, [wantDemo, status, mode, setView, navigate, pathname])
+  return wantDemo
+}
+
+/** Оболочка приложения: рейл на ПК, таббар на телефоне, кнопка «живые ↔ демо» в углу.
+ *  Живой режим без магазина — в онбординг. В демо магазин не нужен: показываем демо-сеть,
+ *  в том числе когда сервер лежит — вместо страницы ошибки. */
 export function AppShell() {
   const { status, shops, error, reload } = useShops()
-  const { search } = useLocation()
-  const demoView = new URLSearchParams(search).get('demo') === '1'
+  const { mode, status: modeStatus } = useMode()
+  const { latest } = useLatest()
+  const wantDemo = useDemoLink()
+  const live = mode === 'live' && !wantDemo
+  // Своих обходов ещё нет — кнопки «Новый обход» мягко пульсируют, приглашая начать.
+  const invite = live && latest.status === 'success' && latest.data === null
 
-  if (status === 'loading' && !shops.length) return <ShellSplash />
-  if (status === 'error' && !shops.length && !demoView) {
+  if (modeStatus === 'loading' || (live && status === 'loading' && !shops.length)) return <ShellSplash />
+  if (live && status === 'error' && !shops.length) {
     return (
       <div className="app__main" style={{ maxWidth: 560, paddingTop: 64 }}>
         <ErrorState error={error} onRetry={() => void reload()} />
       </div>
     )
   }
-  if (status === 'ready' && !shops.length && !demoView) return <Navigate to="/app/onboarding" replace />
+  if (live && status === 'ready' && !shops.length) return <Navigate to="/app/onboarding" replace />
 
   return (
-    <div className="app">
+    <div className="app" data-view={mode} data-invite={invite || undefined}>
       <Rail />
       <div className="grow" style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <OfflineBanner />
@@ -138,6 +160,7 @@ export function AppShell() {
         </main>
       </div>
       <TabBar />
+      <DataModeSwitch />
     </div>
   )
 }
