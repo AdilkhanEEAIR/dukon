@@ -348,17 +348,12 @@
   .rail { display: flex; }
 }
 
-.logo {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  flex-shrink: 0;
-}
+/* ---- знак Dukon (LogoMark): плитка цвета текста, «D» цвета фона, планка — акцент */
+.logo-mark { flex-shrink: 0; }
+.logo-mark__tile { fill: var(--ink); }
+.logo-mark__d { stroke: var(--bg); }
+.logo-mark__bar { stroke: var(--accent); }
+:root[data-theme='light'] .logo-mark__bar { stroke: #3fa572; }
 
 /* ---- сегментированный переключатель с движущимся индикатором */
 .seg {
@@ -695,9 +690,7 @@
 .notif--unread::before { content: ''; position: absolute; left: -10px; top: 14px; bottom: 14px; width: 3px; border-radius: 2px; background: var(--accent); }
 .notif--read { opacity: 0.6; }
 
-/* ---- переключатель темы (солнце превращается в луну — см. ThemeIcon и effects.css) */
-.theme-btn { overflow: hidden; }
-.theme-btn__icon { display: inline-flex; }
+/* ---- переключатель темы — капсула с бегунком, стили в polish.css */
 
 /* ---- лендинг */
 .landing {
