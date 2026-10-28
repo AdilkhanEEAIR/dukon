@@ -1,0 +1,6 @@
+# Одинаковые переводы строк на Windows и Linux: без этого git ругается «LF will be replaced by CRLF»
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.heic binary
+*.sqlite3 binary
