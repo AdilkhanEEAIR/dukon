@@ -1,36 +1,66 @@
-// Пустые, ошибочные и загрузочные состояния. Одинаковые на всех страницах.
+// Состояния экранов: скелетон, пусто, ошибка с причиной, предупреждение. Один вид на всё приложение.
 
-import { describeError } from '../api/client'
+import { CircleAlert, Inbox, RefreshCw, TriangleAlert, WifiOff, type LucideIcon } from 'lucide-react'
+import type { CSSProperties, ReactNode } from 'react'
+import { errorCode } from '../api/client'
+import { useT } from '../i18n'
 import { Button } from './Button'
-import { Icon, type IconName } from './Icon'
 
-export function EmptyState({ icon = 'shelf', title, text, action }: { icon?: IconName; title: string; text?: string; action?: React.ReactNode }) {
+export function Skeleton({ h = 16, w = '100%', r, style }: { h?: number | string; w?: number | string; r?: number; style?: CSSProperties }) {
+  return <div className="skeleton" style={{ height: h, width: w, borderRadius: r, ...style }} aria-hidden />
+}
+
+/** Скелетон главной/отчёта: повторяет будущую раскладку, чтобы контент не прыгал. */
+export function ReportSkeleton() {
+  return (
+    <div className="stack" data-testid="skeleton" style={{ gap: 18 }}>
+      <Skeleton h={120} w={240} r={10} />
+      <div className="metric-row">
+        <Skeleton h={48} w="70%" />
+        <Skeleton h={48} w="70%" />
+        <Skeleton h={48} w="70%" />
+      </div>
+      <Skeleton h={20} w={160} />
+      <div className="sheet sheet--pad stack">
+        <Skeleton h={44} />
+        <Skeleton h={44} />
+        <Skeleton h={44} />
+      </div>
+    </div>
+  )
+}
+
+export function EmptyState({ icon: Icon = Inbox, title, text, action, tone }: { icon?: LucideIcon; title: string; text?: string; action?: ReactNode; tone?: 'out' }) {
   return (
     <div className="state" data-testid="empty-state">
-      <div className="state__icon">
-        <Icon name={icon} size={24} />
-      </div>
-      <div className="h3">{title}</div>
-      {text && <p className="caption">{text}</p>}
+      <span className={`state__icon${tone ? ` state__icon--${tone}` : ''}`}>
+        <Icon size={22} />
+      </span>
+      <h2 className="h3">{title}</h2>
+      {text && <p className="state__text">{text}</p>}
       {action && <div className="state__actions">{action}</div>}
     </div>
   )
 }
 
-export function ErrorState({ error, onRetry, secondary }: { error: unknown; onRetry?: () => void; secondary?: React.ReactNode }) {
-  const info = describeError(error)
-  const offline = info.code === 'network'
+export function ErrorState({ error, onRetry, secondary }: { error: unknown; onRetry?: () => void; secondary?: ReactNode }) {
+  const t = useT()
+  const { code, status, retryable } = errorCode(error)
+  const Icon = code === 'network' ? WifiOff : CircleAlert
   return (
-    <div className="state" role="alert" data-testid="error-state" data-code={info.code}>
-      <div className={`state__icon ${offline ? 'state__icon--warning' : 'state__icon--danger'}`}>
-        <Icon name={offline ? 'wifiOff' : 'alert'} size={24} />
-      </div>
-      <div className="h3">{info.title}</div>
-      <p className="caption">{info.hint}</p>
+    <div className="state" role="alert" data-testid="error-state" data-code={code}>
+      <span className="state__icon state__icon--out">
+        <Icon size={22} />
+      </span>
+      <h2 className="h3">{t(`errors.${code}.title`)}</h2>
+      <p className="state__text">
+        {t(`errors.${code}.hint`)}
+        {status ? <span className="c-3"> · {t('errors.code', { n: status })}</span> : null}
+      </p>
       <div className="state__actions">
-        {onRetry && (
-          <Button variant="primary" onClick={onRetry} icon={<Icon name="refresh" size={16} />}>
-            Повторить
+        {onRetry && (retryable || code === 'unknown') && (
+          <Button variant="secondary" onClick={onRetry} icon={<RefreshCw size={16} />}>
+            {t('common.retry')}
           </Button>
         )}
         {secondary}
@@ -39,38 +69,15 @@ export function ErrorState({ error, onRetry, secondary }: { error: unknown; onRe
   )
 }
 
-export function Skeleton({ w = '100%', h = 14, r = 8, style }: { w?: string | number; h?: number; r?: number; style?: React.CSSProperties }) {
-  return <div className="skeleton" style={{ width: w, height: h, borderRadius: r, ...style }} aria-hidden="true" />
-}
-
-export function ReportSkeleton() {
+export function Notice({ tone = 'low', title, text, action }: { tone?: 'low' | 'out' | 'ok'; title: string; text?: string; action?: ReactNode }) {
   return (
-    <div className="stack" data-testid="skeleton">
-      <div className="card stack">
-        <Skeleton w={120} h={11} />
-        <Skeleton w={160} h={40} />
-        <Skeleton w="70%" h={12} />
+    <div className={`notice notice--${tone}`} role="status">
+      <TriangleAlert size={18} className="notice__icon" />
+      <div className="stack stack--tight grow">
+        <span className="notice__title">{title}</span>
+        {text && <span className="notice__text">{text}</span>}
       </div>
-      <div className="grid-3">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="card stack">
-            <Skeleton w={48} h={28} />
-            <Skeleton w={90} h={11} />
-          </div>
-        ))}
-      </div>
-      <div className="card stack">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="row">
-            <Skeleton w={3} h={28} r={2} />
-            <div className="stack" style={{ flex: 1, gap: 6 }}>
-              <Skeleton w="55%" h={13} />
-              <Skeleton w="35%" h={11} />
-            </div>
-            <Skeleton w={60} h={16} />
-          </div>
-        ))}
-      </div>
+      {action}
     </div>
   )
 }

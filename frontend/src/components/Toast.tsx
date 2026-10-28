@@ -1,48 +1,63 @@
-// Тосты: подтверждение без захвата экрана. Контекст + хук, живут 4 секунды.
+// Тосты: въезжают снизу и уходят туда же (пространственная последовательность), живут 4 секунды.
+// Вход — через @starting-style в CSS, выход — класс toast--out и удаление после transition.
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { Check, CircleAlert, Info } from 'lucide-react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 
-export type ToastKind = 'info' | 'success' | 'danger'
-interface ToastItem {
+type Tone = 'success' | 'danger' | 'info'
+interface Toast {
   id: number
-  kind: ToastKind
+  tone: Tone
   title: string
   text?: string
+  leaving?: boolean
 }
 
-const ToastCtx = createContext<{ push: (kind: ToastKind, title: string, text?: string) => void } | null>(null)
+type Push = (tone: Tone, title: string, text?: string) => void
+const Ctx = createContext<Push | null>(null)
+const LIFETIME = 4000
+const EXIT = 320
 
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<ToastItem[]>([])
-  const push = useCallback((kind: ToastKind, title: string, text?: string) => {
-    const id = Date.now() + Math.random()
-    setItems((prev) => [...prev, { id, kind, title, text }])
-    setTimeout(() => setItems((prev) => prev.filter((t) => t.id !== id)), 4000)
+  const [items, setItems] = useState<Toast[]>([])
+  const seq = useRef(0)
+
+  const remove = useCallback((id: number) => {
+    setItems((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t)))
+    setTimeout(() => setItems((prev) => prev.filter((t) => t.id !== id)), EXIT)
   }, [])
-  const value = useMemo(() => ({ push }), [push])
+
+  const push = useCallback<Push>(
+    (tone, title, text) => {
+      const id = ++seq.current
+      setItems((prev) => [...prev.slice(-2), { id, tone, title, text }])
+      setTimeout(() => remove(id), LIFETIME)
+    },
+    [remove],
+  )
+
+  const icons = useMemo(() => ({ success: <Check size={16} />, danger: <CircleAlert size={16} />, info: <Info size={16} /> }), [])
+
   return (
-    <ToastCtx.Provider value={value}>
+    <Ctx.Provider value={push}>
       {children}
-      <div className="toast-host" aria-live="polite">
+      <div className="toasts" aria-live="polite">
         {items.map((t) => (
-          <div key={t.id} className={`toast toast--${t.kind}`} role="status">
-            <span
-              className="toast__dot"
-              style={{ background: t.kind === 'danger' ? 'var(--danger)' : t.kind === 'success' ? 'var(--success)' : 'var(--accent)' }}
-            />
-            <div>
-              <div style={{ fontWeight: 600 }}>{t.title}</div>
-              {t.text && <div className="caption">{t.text}</div>}
+          <div key={t.id} className={`toast${t.leaving ? ' toast--out' : ''}`} role="status" onClick={() => remove(t.id)}>
+            <span style={{ marginTop: 2 }}>{icons[t.tone]}</span>
+            <div className="stack" style={{ gap: 1 }}>
+              <span className="toast__title">{t.title}</span>
+              {t.text && <span className="toast__text">{t.text}</span>}
             </div>
           </div>
         ))}
       </div>
-    </ToastCtx.Provider>
+    </Ctx.Provider>
   )
 }
 
-export function useToast() {
-  const ctx = useContext(ToastCtx)
+export function useToast(): Push {
+  const ctx = useContext(Ctx)
   if (!ctx) throw new Error('useToast вне ToastProvider')
-  return ctx.push
+  return ctx
 }
