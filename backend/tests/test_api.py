@@ -127,3 +127,38 @@ def test_storage_kv_roundtrip(tmp_path):
     assert s.get_text("x") == "billing"
     s.set_text("x", None)
     assert s.get_text("x") is None
+
+
+def test_successful_live_call_clears_billing_error(live_client, storage):
+    # Кредиты кончились: сервер честно показывает демо с причиной.
+    storage.set_text("last_provider_error", "billing")
+    body = live_client.get("/health").json()
+    assert body["mode"] == "demo" and body["reason"] == "billing"
+
+    # Счёт пополнили, модель снова ответила — живой режим возвращается сам.
+    files = [("photos", ("a.jpg", make_jpeg(640, 480, (90, 10, 10)), "image/jpeg"))]
+    r = live_client.post("/walks/analyze", files=files, headers={"x-demo-key": "test-key"})
+    assert r.status_code == 201, r.text
+    body = live_client.get("/health").json()
+    assert body["mode"] == "live" and body["reason"] is None
+
+
+def test_parallel_requests_share_one_connection_safely(client):
+    # Фронт открывает экран несколькими запросами сразу (магазины, сводка, обходы). Раньше чтения шли
+    # мимо замка, и sqlite3 падал с «bad parameter or other API misuse» — браузер видел это как обрыв сети.
+    from concurrent.futures import ThreadPoolExecutor
+
+    paths = [
+        "/shops/demo",
+        "/branches/overview?scope=demo",
+        "/walks?source=demo&shop_id=demo-chuy",
+        "/walks/demo-tue/diff",
+        "/health",
+    ]
+
+    def hit(i: int) -> int:
+        return client.get(paths[i % len(paths)]).status_code
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        codes = list(pool.map(hit, range(400)))
+    assert set(codes) == {200}
