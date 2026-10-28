@@ -8,6 +8,7 @@ import { Button } from '../components/Button'
 import { AuthorLine, LangSwitch, REPO_URL, ThemeToggle } from '../components/Nav'
 import { ShelfArt } from '../components/ShelfArt'
 import { useI18n } from '../i18n'
+import { LogoMark } from '../components/Logo'
 
 const STEP_ICONS = [Camera, ScanSearch, Coins, Bot]
 
@@ -22,14 +23,12 @@ export function LandingPage() {
     <div className="app__main landing" data-testid="landing">
       <header className="landing__nav">
         <Link to="/" className="row" style={{ gap: 10 }}>
-          <span className="logo">
-            <Store size={18} />
-          </span>
+          <LogoMark />
           <span className="h3">{t('common.appName')}</span>
         </Link>
         <div className="row" style={{ gap: 8 }}>
           <LangSwitch compact align="end" />
-          <ThemeToggle outline />
+          <ThemeToggle />
         </div>
       </header>
 

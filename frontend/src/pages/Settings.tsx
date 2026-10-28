@@ -12,7 +12,7 @@ import { Button, IconButton } from '../components/Button'
 import { Dropdown } from '../components/Dropdown'
 import { ChoiceRow, Field, Input } from '../components/Fields'
 import { AuthorLine, PageActions, REPO_URL } from '../components/Nav'
-import { ThemeIcon } from '../components/ThemeIcon'
+import { MoonGlyph, SunGlyph } from '../components/ThemeIcon'
 import { useToast } from '../components/Toast'
 import { DICTS, LOCALES, useI18n, type Locale } from '../i18n'
 import { CURRENCY_LABEL } from '../lib/currency'
@@ -92,8 +92,8 @@ export function SettingsPage() {
           value={settings.theme}
           onChange={(v) => update({ theme: v })}
           items={[
-            { key: 'light', label: t('theme.light'), icon: <ThemeIcon dark={false} animate={false} /> },
-            { key: 'dark', label: t('theme.dark'), icon: <ThemeIcon dark animate={false} /> },
+            { key: 'light', label: t('theme.light'), icon: <SunGlyph size={18} /> },
+            { key: 'dark', label: t('theme.dark'), icon: <MoonGlyph size={18} /> },
           ]}
         />
         <span className="field__label" style={{ marginBottom: -6 }}>{t('settings.motion')}</span>

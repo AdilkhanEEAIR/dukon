@@ -1,7 +1,7 @@
 // Онбординг: магазин (название и адрес) сохраняется на сервере и привязывается к коду устройства;
 // язык, валюта и тема — на устройстве и применяются сразу, чтобы человек видел результат выбора.
 
-import { ArrowRight, CircleAlert, MapPin, Moon, Store, Sun } from 'lucide-react'
+import { ArrowRight, CircleAlert, MapPin } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { errorCode } from '../api/client'
@@ -13,6 +13,8 @@ import { ChoiceRow, Field, Input } from '../components/Fields'
 import { AuthorLine } from '../components/Nav'
 import { DICTS, LOCALES, useI18n, type Locale } from '../i18n'
 import { CURRENCY_LABEL } from '../lib/currency'
+import { LogoMark } from '../components/Logo'
+import { MoonGlyph, SunGlyph } from '../components/ThemeIcon'
 
 export function OnboardingPage() {
   const { t, locale, setLocale } = useI18n()
@@ -48,9 +50,7 @@ export function OnboardingPage() {
   return (
     <div className="app__main" style={{ maxWidth: 560, paddingTop: 40 }}>
       <form className="page stagger" onSubmit={submit} noValidate data-testid="onboarding">
-        <span className="logo" style={{ width: 48, height: 48, borderRadius: 16 }}>
-          <Store size={24} />
-        </span>
+        <LogoMark size={48} />
         <div className="stack stack--tight">
           <h1 className="h1">{t('onboarding.title')}</h1>
           <p className="lead">{t('onboarding.body')}</p>
@@ -105,8 +105,8 @@ export function OnboardingPage() {
             value={settings.theme}
             onChange={(v) => update({ theme: v })}
             items={[
-              { key: 'light', label: t('theme.light'), icon: <Sun size={18} /> },
-              { key: 'dark', label: t('theme.dark'), icon: <Moon size={18} /> },
+              { key: 'light', label: t('theme.light'), icon: <SunGlyph size={18} /> },
+              { key: 'dark', label: t('theme.dark'), icon: <MoonGlyph size={18} /> },
             ]}
           />
         </Field>

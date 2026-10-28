@@ -1,7 +1,7 @@
 // Навигация: таббар снизу (телефон, планшет) и рейл слева (ПК), переключатель магазина,
 // пилюля режима, тема (светлая/тёмная) с круговым раскрытием и выбор языка.
 
-import { Activity, Bell, Bot, Building2, FlaskConical, House, Info, Languages, MapPin, Package, PackageSearch, Plus, Radio, ScanLine, Settings, Store } from 'lucide-react'
+import { Activity, Bell, Bot, Building2, FlaskConical, House, Info, Languages, MapPin, Package, PackageSearch, Plus, Radio, ScanLine, Settings } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { MouseEvent } from 'react'
 import { flushSync } from 'react-dom'
@@ -14,7 +14,8 @@ import { DICTS, LOCALES, useI18n, useT, type Locale } from '../i18n'
 import { IconButton } from './Button'
 import { Dropdown } from './Dropdown'
 import { Pill } from './Pill'
-import { ThemeIcon } from './ThemeIcon'
+import { MoonGlyph, SunGlyph } from './ThemeIcon'
+import { LogoMark } from './Logo'
 
 export const REPO_URL = 'https://github.com/AdilkhanEEAIR/dukon'
 
@@ -38,8 +39,9 @@ export function ModePill({ compact }: { compact?: boolean }) {
   )
 }
 
-/** Светлая ↔ тёмная. Круговое раскрытие из кнопки через View Transitions; без поддержки — просто меняется. */
-export function ThemeToggle({ outline }: { outline?: boolean }) {
+/** Светлая ↔ тёмная: «капсула» с бегунком, как системный переключатель. Тема раскрывается кругом
+ *  из точки нажатия (View Transitions); без поддержки — просто меняется. */
+export function ThemeToggle() {
   const t = useT()
   const { update, resolvedTheme, resolvedMotion } = useSettings()
   const next = resolvedTheme === 'dark' ? 'light' : 'dark'
@@ -61,11 +63,25 @@ export function ThemeToggle({ outline }: { outline?: boolean }) {
     })
   }
   return (
-    <IconButton label={t('theme.toggle')} outline={outline} className="theme-btn" data-theme={resolvedTheme} data-testid="theme-toggle" onClick={onClick}>
-      <span className="theme-btn__icon">
-        <ThemeIcon dark={resolvedTheme === 'dark'} animate={resolvedMotion === 'full'} />
+    <button
+      type="button"
+      role="switch"
+      aria-checked={resolvedTheme === 'dark'}
+      aria-label={t('theme.toggle')}
+      title={t('theme.toggle')}
+      className="theme-switch"
+      data-theme={resolvedTheme}
+      data-testid="theme-toggle"
+      onClick={onClick}
+    >
+      <span className="theme-switch__knob" aria-hidden />
+      <span className={`theme-switch__opt${resolvedTheme === 'light' ? ' is-on' : ''}`}>
+        <SunGlyph />
       </span>
-    </IconButton>
+      <span className={`theme-switch__opt${resolvedTheme === 'dark' ? ' is-on' : ''}`}>
+        <MoonGlyph />
+      </span>
+    </button>
   )
 }
 
@@ -103,9 +119,7 @@ export function ShopSwitcher({ variant = 'rail' }: { variant?: 'rail' | 'title' 
       renderTrigger={() =>
         variant === 'rail' ? (
           <span className="shop-trigger">
-            <span className="logo">
-              <Store size={18} />
-            </span>
+            <LogoMark />
             <span className="stack" style={{ gap: 0, minWidth: 0, textAlign: 'left' }}>
               <span className="h3 truncate">{current.name}</span>
               <span className="small truncate">{current.address || t('common.appName')}</span>
@@ -230,7 +244,7 @@ export function Rail() {
         <RailMode />
         <div className="row row--between">
           <LangSwitch compact />
-          <ThemeToggle outline />
+          <ThemeToggle />
         </div>
         <NavLink to="/app/scan" className="btn btn--primary btn--block">
           <span className="btn__content">
@@ -282,7 +296,7 @@ export function PageActions() {
   const { pathname } = useLocation()
   return (
     <div className="page-head__actions hide-desktop">
-      <ThemeToggle outline />
+      <ThemeToggle />
       {pathname !== '/app/notifications' && (
         <IconButton label={t('nav.notifications')} outline badge={unread} to="/app/notifications">
           <Bell size={18} />
