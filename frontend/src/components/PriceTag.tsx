@@ -7,7 +7,7 @@ import { useCountUp } from '../hooks/useCountUp'
 import { useI18n } from '../i18n'
 import { formatMoney, formatSom } from '../lib/format'
 
-export function LossTag({ valueKgs, label, unit, animate = true }: { valueKgs: number; label: ReactNode; unit: string; animate?: boolean }) {
+export function LossTag({ valueKgs, label, unit, note, animate = true }: { valueKgs: number; label: ReactNode; unit: string; note?: string; animate?: boolean }) {
   const { t, locale } = useI18n()
   const { settings } = useSettings()
   const shown = useCountUp(valueKgs, animate ? 1200 : 0)
@@ -25,6 +25,7 @@ export function LossTag({ valueKgs, label, unit, animate = true }: { valueKgs: n
         </span>
       )}
       <span className="tag__unit">{unit}</span>
+      {note && <span className="tag__note">{note}</span>}
       <span className="tag__foot">
         <span>
           ≈ {fmt(valueKgs * 30)} {t('common.perMonth')}

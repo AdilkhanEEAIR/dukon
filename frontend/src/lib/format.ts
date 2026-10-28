@@ -62,6 +62,13 @@ export function formatTime(d: Date | string, locale: Locale): string {
   return new Intl.DateTimeFormat(dateLocale(locale), { hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
+/** Дата и время одной строкой по правилам языка: «28 окт., 09:21», «Oct 28, 9:21 AM». */
+export function formatWhen(d: Date | string, locale: Locale): string {
+  const date = typeof d === 'string' ? new Date(d) : d
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat(dateLocale(locale), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
 /** Часы между обходами в человеческом виде; переводы берутся из словаря через колбэк. */
 export function formatHours(hours: number, t: (key: 'common.hours' | 'common.days' | 'common.lessThanHour', p?: { n: number }) => string): string {
   if (hours < 1) return t('common.lessThanHour')

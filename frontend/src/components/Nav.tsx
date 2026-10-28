@@ -258,16 +258,16 @@ export function Rail() {
   )
 }
 
+/** Режим работы в рейле — одна пилюля; причина («нет ключа моделей») — в подсказке и на странице «Система»:
+ *  владельцу магазина служебная строка внизу меню ни к чему. */
 function RailMode() {
   const t = useT()
   const { mode, reason, budget, status } = useMode()
+  const hint = status === 'loading' ? '' : mode === 'live' ? t('mode.liveHint', { n: budget?.calls_left ?? 0 }) : reason ? t(`mode.reasons.${reason}`) : ''
   return (
-    <div className="rail__mode">
-      <div>
-        <ModePill compact />
-      </div>
-      {status !== 'loading' && <span className="small">{mode === 'live' ? t('mode.liveHint', { n: budget?.calls_left ?? 0 }) : reason ? t(`mode.reasons.${reason}`) : ''}</span>}
-    </div>
+    <Link to="/app/system" className="rail__mode" title={hint} data-testid="rail-mode">
+      <ModePill compact />
+    </Link>
   )
 }
 
