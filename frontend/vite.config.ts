@@ -5,8 +5,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
-    // Самый крупный кусок — ECharts (~190 КБ gzip), он грузится лениво, только когда на экране есть график.
-    chunkSizeWarningLimit: 600,
+    // Крупные куски — MapLibre (~290 КБ gzip) и ECharts (~190 КБ gzip): оба грузятся лениво, только на экранах
+    // с картой или графиком, поэтому порог предупреждения поднят до их размера, а не до размера всего приложения.
+    chunkSizeWarningLimit: 1100,
     rolldownOptions: {
       output: {
         // Библиотеки меняются реже кода приложения — отдельные чанки кэшируются браузером между деплоями.
@@ -17,6 +18,7 @@ export default defineConfig({
             { name: 'motion', test: /node_modules[\\/](motion|motion-dom|motion-utils|framer-motion)[\\/]/ },
             { name: 'icons', test: /node_modules[\\/]lucide-react[\\/]/ },
             { name: 'echarts', test: /node_modules[\\/](echarts|zrender)[\\/]/ },
+            { name: 'maplibre', test: /node_modules[\\/](maplibre-gl|@maplibre|@mapbox)[\\/]/ },
           ],
         },
       },
