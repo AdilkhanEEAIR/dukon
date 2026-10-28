@@ -1,4 +1,4 @@
-// Настройки устройства: язык, валюта, тема, демо-код и код устройства. Хранятся в localStorage,
+// Настройки устройства: язык, валюта, тема, анимации, демо-код и код устройства. Хранятся в localStorage,
 // потому что аккаунтов нет — владелец магазина открыл ссылку и работает. Магазины живут на сервере
 // и привязаны к коду устройства.
 
@@ -7,12 +7,16 @@ import { DEFAULT_LOCALE, isLocale, type Locale } from '../i18n'
 import { DEFAULT_CURRENCY, isCurrency, type Currency } from '../lib/currency'
 
 export type Theme = 'light' | 'dark'
+/** auto — как просит система (Windows «Эффекты анимации», iOS «Уменьшение движения»), full — всё, calm — только проявления. */
+export type MotionPref = 'auto' | 'full' | 'calm'
+export type Motion = 'full' | 'calm'
 export { CURRENCIES, type Currency } from '../lib/currency'
 
 export interface Settings {
   locale: Locale
   currency: Currency
   theme: Theme
+  motion: MotionPref
   demoKey: string
 }
 
@@ -25,10 +29,19 @@ function systemTheme(): Theme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
-function defaults(): Settings {
-  // Первый запуск: английский (его читают судьи и гости), доллар, тема — как в системе.
-  return { locale: DEFAULT_LOCALE, currency: DEFAULT_CURRENCY, theme: systemTheme(), demoKey: '' }
+const REDUCE_QUERY = '(prefers-reduced-motion: reduce)'
+
+export function systemReducesMotion(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false
+  return window.matchMedia(REDUCE_QUERY).matches
 }
+
+function defaults(): Settings {
+  // Первый запуск: английский (его читают судьи и гости), доллар, тема и анимации — как в системе.
+  return { locale: DEFAULT_LOCALE, currency: DEFAULT_CURRENCY, theme: systemTheme(), motion: 'auto', demoKey: '' }
+}
+
+const isMotionPref = (v: unknown): v is MotionPref => v === 'auto' || v === 'full' || v === 'calm'
 
 function load(): Settings {
   const base = defaults()
@@ -41,6 +54,7 @@ function load(): Settings {
       locale: isLocale(p.locale) ? p.locale : base.locale,
       currency: isCurrency(p.currency) ? p.currency : base.currency,
       theme: p.theme === 'light' || p.theme === 'dark' ? p.theme : base.theme,
+      motion: isMotionPref(p.motion) ? p.motion : base.motion,
       demoKey: typeof p.demoKey === 'string' ? p.demoKey : '',
     }
   } catch {
@@ -80,6 +94,9 @@ interface SettingsValue {
   update: (patch: Partial<Settings>) => void
   reset: () => void
   resolvedTheme: Theme
+  /** Что реально показываем: настройка «как в системе» уже развёрнута в full или calm. */
+  resolvedMotion: Motion
+  systemCalm: boolean
   deviceId: string
   setDeviceId: (id: string) => void
 }
@@ -89,6 +106,23 @@ const Ctx = createContext<SettingsValue | null>(null)
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(load)
   const [deviceId, setDeviceIdState] = useState<string>(loadDeviceId)
+  const [systemCalm, setSystemCalm] = useState<boolean>(systemReducesMotion)
+
+  // Пользователь может переключить системную настройку, не закрывая вкладку.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia(REDUCE_QUERY)
+    const on = () => setSystemCalm(mq.matches)
+    mq.addEventListener?.('change', on)
+    return () => mq.removeEventListener?.('change', on)
+  }, [])
+
+  const resolvedMotion: Motion = settings.motion === 'auto' ? (systemCalm ? 'calm' : 'full') : settings.motion
+
+  // Атрибут на <html>: CSS и наблюдатель прокрутки читают его, не дёргая React.
+  useEffect(() => {
+    document.documentElement.dataset.motion = resolvedMotion
+  }, [resolvedMotion])
 
   // Тема живёт на <html>: CSS-переменные переключаются одним атрибутом, без перерисовки React.
   useEffect(() => {
@@ -125,8 +159,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ settings, update, reset, resolvedTheme: settings.theme, deviceId, setDeviceId }),
-    [settings, update, reset, deviceId, setDeviceId],
+    () => ({ settings, update, reset, resolvedTheme: settings.theme, resolvedMotion, systemCalm, deviceId, setDeviceId }),
+    [settings, update, reset, resolvedMotion, systemCalm, deviceId, setDeviceId],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -1,12 +1,16 @@
 // Число «набегает» один раз при первом показе: редкое событие (открыли главную) — можно позволить
-// 600 мс. При reduced-motion и в тестах показываем конечное значение сразу.
+// 600 мс. В спокойном режиме и в тестах показываем конечное значение сразу.
 
 import { useEffect, useRef, useState } from 'react'
 
 const EASE_OUT = (t: number) => 1 - Math.pow(1 - t, 3)
 
+/** Режим из настроек (атрибут data-motion на <html>), а пока его нет — системная настройка. */
 export function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (typeof window === 'undefined') return false
+  const chosen = document.documentElement.dataset.motion
+  if (chosen) return chosen === 'calm'
+  return !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 export function useCountUp(target: number, durationMs = 600): number {

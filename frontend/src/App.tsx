@@ -2,8 +2,9 @@
 // Экспортируем AppRoutes/Providers отдельно, чтобы тесты рендерили их с MemoryRouter.
 
 import { WifiOff } from 'lucide-react'
-import { Component, useCallback, type ErrorInfo, type ReactNode } from 'react'
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
+import { AnimatePresence, MotionConfig, motion, type Transition } from 'motion/react'
+import { Component, useCallback, useState, type ErrorInfo, type ReactNode } from 'react'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useOutlet } from 'react-router-dom'
 import { DataProvider } from './app/data'
 import { ModeProvider } from './app/mode'
 import { NotificationsProvider } from './app/notifications'
@@ -13,6 +14,8 @@ import { Rail, TabBar } from './components/Nav'
 import { Skeleton, ErrorState } from './components/States'
 import { ToastProvider } from './components/Toast'
 import { useOnline } from './hooks/useOnline'
+import { useScrollReveal } from './hooks/useScrollReveal'
+import { useSpotlight } from './hooks/useSpotlight'
 import { I18nProvider, useT, type Locale } from './i18n'
 import { AgentPage } from './pages/Agent'
 import { BranchesPage } from './pages/Branches'
@@ -38,9 +41,19 @@ function LocaleBridge({ children }: { children: ReactNode }) {
   )
 }
 
+/** Движение на всё приложение: motion слушается нашей настройки (а не только системы),
+ *  появление при прокрутке и «прожектор» под курсором подключаются один раз. */
+function MotionLayer({ children }: { children: ReactNode }) {
+  const { resolvedMotion } = useSettings()
+  useScrollReveal()
+  useSpotlight()
+  return <MotionConfig reducedMotion={resolvedMotion === 'calm' ? 'always' : 'never'}>{children}</MotionConfig>
+}
+
 export function Providers({ children, poll = true }: { children: ReactNode; poll?: boolean }) {
   return (
     <SettingsProvider>
+      <MotionLayer>
       <LocaleBridge>
         <ToastProvider>
           <ModeProvider poll={poll}>
@@ -52,6 +65,7 @@ export function Providers({ children, poll = true }: { children: ReactNode; poll
           </ModeProvider>
         </ToastProvider>
       </LocaleBridge>
+      </MotionLayer>
     </SettingsProvider>
   )
 }
@@ -116,13 +130,72 @@ export function AppShell() {
         <OfflineBanner />
         <main className="app__main">
           <ErrorBoundary>
-            <Outlet />
+            <AnimatedOutlet />
           </ErrorBoundary>
         </main>
       </div>
       <TabBar />
     </div>
   )
+}
+
+// ---- переходы между страницами
+// Старая страница коротко растворяется вверх, новая выплывает снизу из лёгкого размытия;
+// её блоки затем идут каскадом (.stagger). В спокойном режиме — только прозрачность.
+const PAGE_IN: Transition = { duration: 0.46, ease: [0.22, 1, 0.36, 1] }
+const PAGE_OUT: Transition = { duration: 0.16, ease: [0.4, 0, 1, 1] }
+
+function scrollTop() {
+  // instant: плавная прокрутка вверх во время смены страницы выглядит как рывок.
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior })
+}
+
+/** Страница внутри оболочки. Ключ — путь: другая страница = выход старой и вход новой. */
+function AnimatedOutlet() {
+  const { pathname } = useLocation()
+  return (
+    <AnimatePresence mode="wait" initial={false} onExitComplete={scrollTop}>
+      <PageMotion key={pathname}>
+        <FrozenOutlet />
+      </PageMotion>
+    </AnimatePresence>
+  )
+}
+
+/** Уходящая страница должна показывать себя, а не новую: запоминаем outlet в момент монтирования. */
+function FrozenOutlet() {
+  const outlet = useOutlet()
+  const [frozen] = useState(outlet)
+  return frozen
+}
+
+function PageMotion({ children }: { children: ReactNode }) {
+  return (
+    <motion.div
+      className="route"
+      initial={{ opacity: 0, y: 18, filter: 'blur(8px)' }}
+      // transitionEnd: после въезда снимаем filter совсем — иначе он ломает position: fixed у потомков.
+      animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: PAGE_IN, transitionEnd: { filter: 'none' } }}
+      exit={{ opacity: 0, y: -10, filter: 'blur(4px)', transition: PAGE_OUT }}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
+/** Смена «зоны» (лендинг ↔ онбординг ↔ приложение) — только растворением: внутри зоны есть фиксированные панели. */
+function AreaMotion({ children }: { children: ReactNode }) {
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { duration: 0.4 } }} exit={{ opacity: 0, transition: { duration: 0.18 } }}>
+      {children}
+    </motion.div>
+  )
+}
+
+function areaOf(pathname: string): string {
+  if (pathname.startsWith('/app/onboarding')) return 'onboarding'
+  if (pathname.startsWith('/app')) return 'app'
+  return 'landing'
 }
 
 function ShellSplash() {
@@ -144,8 +217,26 @@ function OnboardingGate() {
 }
 
 export function AppRoutes() {
+  const location = useLocation()
   return (
-    <Routes>
+    <AnimatePresence mode="wait" initial={false} onExitComplete={scrollTop}>
+      <AreaMotion key={areaOf(location.pathname)}>
+        <AreaRoutes />
+      </AreaMotion>
+    </AnimatePresence>
+  )
+}
+
+/** Маршруты с замороженным location: уходящая зона дорисовывает свою страницу, а не новую. */
+function AreaRoutes() {
+  const current = useLocation()
+  const [area] = useState(() => areaOf(current.pathname))
+  const [kept, setKept] = useState(current)
+  const inArea = areaOf(current.pathname) === area
+  // Пока зона своя — помним последний адрес; когда зона уходит, дорисовываем его, а не новый.
+  if (inArea && kept !== current) setKept(current)
+  return (
+    <Routes location={inArea ? current : kept}>
       <Route path="/" element={<LandingPage />} />
       <Route path="/app/onboarding" element={<OnboardingGate />} />
       <Route path="/app" element={<AppShell />}>
