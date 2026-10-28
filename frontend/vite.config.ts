@@ -10,7 +10,8 @@ export default defineConfig({
     rolldownOptions: {
       output: {
         // Библиотеки меняются реже кода приложения — отдельные чанки кэшируются браузером между деплоями.
-        advancedChunks: {
+        // codeSplitting — новое имя advancedChunks в Vite 8 (rolldown); старое печатало предупреждение при сборке.
+        codeSplitting: {
           groups: [
             { name: 'react', test: /node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/ },
             { name: 'motion', test: /node_modules[\\/](motion|motion-dom|motion-utils|framer-motion)[\\/]/ },
