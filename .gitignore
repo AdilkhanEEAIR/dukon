@@ -1,12 +1,33 @@
-﻿.env
+# --- секреты и локальные настройки: никогда не в репозиторий
+.env
 .env.*
 !.env.example
-node_modules/
-__pycache__/
+backend/.env
+frontend/.env
+
+# --- python
 .venv/
-dist/
-*.heic
-*.HEIC
-*.mov
-*.MOV
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- node
+node_modules/
+frontend/dist/
+frontend/coverage/
+*.tsbuildinfo
+
+# --- данные: сырые фото тяжёлые и личные, база создаётся сама
 data/raw/
+data/*.sqlite3
+data/*.sqlite3-journal
+
+# --- система и редакторы
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
