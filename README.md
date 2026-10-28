@@ -60,7 +60,7 @@ cd backend;  python -m pytest -q;  python -m ruff check .
 cd frontend; npm run check        # typecheck + lint + tests + build
 ```
 
-Frontend: React 19, TypeScript strict, `motion` for springs and layout animations, `lucide-react` icons, lazy-loaded ECharts for analytics, six languages (en, ru, ky, es, de, fr), light and dark themes, prices converted from som at the National Bank rate. Requires Node 22.12+.
+Frontend: React 19, TypeScript strict, `motion` for springs and layout animations, `lucide-react` icons, lazy-loaded ECharts for analytics, six languages (en, ru, ky, es, de, fr), light and dark themes, prices converted from som at the National Bank rate, page transitions and scroll reveal on every block, hand-drawn product icons by category. Animations follow the device's reduce-motion setting (calm fades only) and can be switched in Settings. Requires Node 22.12+.
 
 ## Shops and branches
 
