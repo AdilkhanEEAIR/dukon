@@ -19,7 +19,7 @@ const ICON = {
 } as const
 
 export function NotificationsPage() {
-  const { t, locale } = useI18n()
+  const { t, locale, product } = useI18n()
   const { items, unread, markAll, markRead } = useNotifications()
   const navigate = useNavigate()
 
@@ -31,6 +31,7 @@ export function NotificationsPage() {
   const text = (n: Notification) => {
     const p = { ...n.params }
     if (n.kind === 'mode') p.reason = t(`mode.reasons.${String(p.reason) as 'unknown'}`)
+    if (typeof p.name === 'string') p.name = product(p.name)
     return t(`notifications.kinds.${n.kind}`, p)
   }
 

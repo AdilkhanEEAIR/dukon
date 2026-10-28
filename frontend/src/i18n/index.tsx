@@ -7,6 +7,7 @@ import { en, type Dict, type Plural } from './en'
 import { es } from './es'
 import { fr } from './fr'
 import { ky } from './ky'
+import { productName } from './products'
 import { ru } from './ru'
 
 export type Locale = 'en' | 'ru' | 'ky' | 'es' | 'de' | 'fr'
@@ -90,6 +91,8 @@ interface I18nValue {
   t: (key: TKey, params?: Params) => string
   rich: (key: TKey, params?: Params) => ReactNode
   list: <T>(key: TKey) => T[]
+  /** Название товара с ценника — на языке интерфейса (см. products.ts). */
+  product: (name: string) => string
 }
 
 const I18nCtx = createContext<I18nValue | null>(null)
@@ -98,7 +101,8 @@ export function I18nProvider({ locale, setLocale, children }: { locale: Locale; 
   const t = useCallback((key: TKey, params?: Params) => translate(locale, key, params), [locale])
   const rich = useCallback((key: TKey, params?: Params) => translateRich(locale, key, params), [locale])
   const list = useCallback(<T,>(key: TKey) => translateList<T>(locale, key), [locale])
-  const value = useMemo(() => ({ locale, setLocale, t, rich, list }), [locale, setLocale, t, rich, list])
+  const product = useCallback((name: string) => productName(name, locale), [locale])
+  const value = useMemo(() => ({ locale, setLocale, t, rich, list, product }), [locale, setLocale, t, rich, list, product])
   return <I18nCtx.Provider value={value}>{children}</I18nCtx.Provider>
 }
 

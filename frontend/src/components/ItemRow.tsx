@@ -4,12 +4,12 @@
 import { ArrowRight, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { ItemChange } from '../api/types'
-import { useT } from '../i18n'
+import { useI18n } from '../i18n'
 import { STATUS_TONE } from './Pill'
 import { ProductIcon } from './ProductIcon'
 
 export function ItemRow({ change, onOpen }: { change: ItemChange; onOpen?: (change: ItemChange) => void }) {
-  const t = useT()
+  const { t, product } = useI18n()
   const navigate = useNavigate()
   const tone = STATUS_TONE[change.status]
   const open = () => (onOpen ? onOpen(change) : navigate(`/app/item/${encodeURIComponent(change.sku)}`))
@@ -17,7 +17,7 @@ export function ItemRow({ change, onOpen }: { change: ItemChange; onOpen?: (chan
     <button type="button" className="item-row item-row--link" onClick={open} data-testid="item-row" data-tone={tone}>
       <ProductIcon name={change.name} empty={change.status === 'out_of_stock'} />
       <span className="stack" style={{ gap: 1, minWidth: 0, textAlign: 'left' }}>
-        <span className="item-row__name truncate">{change.name}</span>
+        <span className="item-row__name truncate">{product(change.name)}</span>
         <span className={`item-row__meta c-${tone}`}>{t(`status.${change.status}`)}</span>
       </span>
       <span className="item-row__nums">

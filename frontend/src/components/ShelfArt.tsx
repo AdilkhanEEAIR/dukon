@@ -2,6 +2,7 @@
 // на каждой — что прочитал Muse Spark. Это единственная «оркестрованная» анимация на странице.
 
 import { useMemo } from 'react'
+import { useI18n } from '../i18n'
 
 interface Pack {
   x: number
@@ -39,6 +40,9 @@ const PACKS: Pack[] = [
 const SHELVES = [174, 314, 454]
 
 export function ShelfArt({ animate = true }: { animate?: boolean }) {
+  const { locale } = useI18n()
+  // «с» — сокращение сома на русских и кыргызских ценниках; для остальных языков — просто число.
+  const som = locale === 'ru' || locale === 'ky' ? ' с' : ''
   const boxes = useMemo(() => PACKS.map((p, i) => ({ ...p, delay: 0.9 + i * 0.09 })), [])
   // Пустое место на второй полке — там, где нет молока: первая «дыра», за которую мы и считаем потери.
   return (
@@ -68,9 +72,10 @@ export function ShelfArt({ animate = true }: { animate?: boolean }) {
         {boxes.map((b, i) => (
           <g key={i} style={animate ? { animationDelay: `${b.delay}s` } : undefined}>
             <rect className="box" x={b.x - 3} y={b.y - 3} width={b.w + 6} height={b.h + 6} rx="6" style={animate ? { animationDelay: `${b.delay}s` } : undefined} />
-            <rect className="box-chip" x={b.x - 3} y={b.y - 16} width={Math.max(26, b.price.length * 8 + 14)} height="14" rx="4" style={animate ? { animationDelay: `${b.delay}s` } : undefined} />
+            <rect className="box-chip" x={b.x - 3} y={b.y - 16} width={Math.max(26, b.price.length * 8 + (som ? 14 : 8))} height="14" rx="4" style={animate ? { animationDelay: `${b.delay}s` } : undefined} />
             <text className="box-label" x={b.x + 3} y={b.y - 6} style={animate ? { animationDelay: `${b.delay}s` } : undefined}>
-              {b.price} с
+              {b.price}
+              {som}
             </text>
           </g>
         ))}
