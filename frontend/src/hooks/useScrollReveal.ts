@@ -35,12 +35,14 @@ const SKIP = '.dd__menu, .drawer, .scrim, .toasts, .tabbar, .rail, [data-no-reve
 
 type State = 'in' | 'above' | 'below'
 
-const EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+// Мягкий «экспоненциальный» выход: быстро стартует и очень долго дотягивает — читается как плавность, а не скорость.
+const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)'
+const EASE_AWAY = 'cubic-bezier(0.45, 0, 0.55, 1)'
 
 function hiddenFrame(state: Exclude<State, 'in'>, nested: boolean, calm: boolean): Keyframe {
   if (calm) return { opacity: 0 }
-  const dy = (nested ? 12 : 28) * (state === 'below' ? 1 : -1)
-  return { opacity: 0, translate: `0 ${dy}px`, scale: nested ? '1' : '0.985', filter: 'blur(6px)' }
+  const dy = (nested ? 10 : 22) * (state === 'below' ? 1 : -1)
+  return { opacity: 0, translate: `0 ${dy}px`, scale: nested ? '1' : '0.98', filter: 'blur(8px)' }
 }
 const SHOWN: Keyframe = { opacity: 1, translate: '0 0', scale: '1', filter: 'blur(0px)' }
 const SHOWN_CALM: Keyframe = { opacity: 1 }
@@ -96,9 +98,9 @@ export function useScrollReveal(enabled = true) {
             // остальное, что добавилось позже (строки списка, карточки после загрузки), въезжает каскадом здесь.
             if (prev === undefined && (!late.has(el) || el.matches('.stagger > *'))) continue
             const from: Exclude<State, 'in'> = prev === undefined || prev === 'in' ? 'below' : prev
-            const delay = Math.min(order++, 8) * (nested ? 45 : 70)
+            const delay = Math.min(order++, 8) * (nested ? 60 : 90)
             play(el, hiddenFrame(from, nested || prev === undefined, calm), calm ? SHOWN_CALM : SHOWN, {
-              duration: calm ? 420 : 720,
+              duration: calm ? 600 : 1050,
               easing: EASE,
               delay,
             })
@@ -106,7 +108,7 @@ export function useScrollReveal(enabled = true) {
             // Вне экрана с самого начала: прячем мгновенно, пользователь этого не видит.
             play(el, null, hiddenFrame(next, nested, calm), { duration: 0 })
           } else {
-            play(el, null, hiddenFrame(next, nested, calm), { duration: calm ? 260 : 420, easing: EASE })
+            play(el, null, hiddenFrame(next, nested, calm), { duration: calm ? 420 : 680, easing: EASE_AWAY })
           }
         }
       },
@@ -145,7 +147,7 @@ export function useScrollReveal(enabled = true) {
       tracked.forEach((el) => {
         if (states.get(el) !== 'below' || el.getBoundingClientRect().top >= window.innerHeight) return
         states.set(el, 'in')
-        play(el as HTMLElement, hiddenFrame('below', isNested(el), calm), calm ? SHOWN_CALM : SHOWN, { duration: calm ? 420 : 720, easing: EASE })
+        play(el as HTMLElement, hiddenFrame('below', isNested(el), calm), calm ? SHOWN_CALM : SHOWN, { duration: calm ? 600 : 1050, easing: EASE })
       })
     }
     const onScroll = () => {

@@ -2,7 +2,7 @@
 // Экспортируем AppRoutes/Providers отдельно, чтобы тесты рендерили их с MemoryRouter.
 
 import { WifiOff } from 'lucide-react'
-import { AnimatePresence, MotionConfig, motion, type Transition } from 'motion/react'
+import { AnimatePresence, MotionConfig, motion, useIsPresent, type Transition } from 'motion/react'
 import { Component, useCallback, useState, type ErrorInfo, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useOutlet } from 'react-router-dom'
 import { DataProvider } from './app/data'
@@ -14,6 +14,8 @@ import { Rail, TabBar } from './components/Nav'
 import { Skeleton, ErrorState } from './components/States'
 import { ToastProvider } from './components/Toast'
 import { useOnline } from './hooks/useOnline'
+import { useRipple } from './hooks/useRipple'
+import { TopLoader } from './components/TopLoader'
 import { useScrollReveal } from './hooks/useScrollReveal'
 import { useSpotlight } from './hooks/useSpotlight'
 import { I18nProvider, useT, type Locale } from './i18n'
@@ -47,6 +49,7 @@ function MotionLayer({ children }: { children: ReactNode }) {
   const { resolvedMotion } = useSettings()
   useScrollReveal()
   useSpotlight()
+  useRipple()
   return <MotionConfig reducedMotion={resolvedMotion === 'calm' ? 'always' : 'never'}>{children}</MotionConfig>
 }
 
@@ -142,12 +145,18 @@ export function AppShell() {
 // ---- переходы между страницами
 // Старая страница коротко растворяется вверх, новая выплывает снизу из лёгкого размытия;
 // её блоки затем идут каскадом (.stagger). В спокойном режиме — только прозрачность.
-const PAGE_IN: Transition = { duration: 0.46, ease: [0.22, 1, 0.36, 1] }
-const PAGE_OUT: Transition = { duration: 0.16, ease: [0.4, 0, 1, 1] }
+const PAGE_IN: Transition = { duration: 0.75, ease: [0.16, 1, 0.3, 1] }
+const PAGE_OUT: Transition = { duration: 0.24, ease: [0.45, 0, 0.55, 1] }
 
 function scrollTop() {
   // instant: плавная прокрутка вверх во время смены страницы выглядит как рывок.
   window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior })
+}
+
+/** Ключ перехода. Обходы одного отчёта (/app/shelves/:id) — одна страница: при выборе дня
+ *  в календаре меняется только содержимое (с полосой загрузки и скелетом), а не вся страница. */
+export function transitionKey(pathname: string): string {
+  return pathname.startsWith('/app/shelves') ? '/app/shelves' : pathname
 }
 
 /** Страница внутри оболочки. Ключ — путь: другая страница = выход старой и вход новой. */
@@ -155,28 +164,32 @@ function AnimatedOutlet() {
   const { pathname } = useLocation()
   return (
     <AnimatePresence mode="wait" initial={false} onExitComplete={scrollTop}>
-      <PageMotion key={pathname}>
+      <PageMotion key={transitionKey(pathname)}>
         <FrozenOutlet />
       </PageMotion>
     </AnimatePresence>
   )
 }
 
-/** Уходящая страница должна показывать себя, а не новую: запоминаем outlet в момент монтирования. */
+/** Пока страница на экране — живой outlet (меняются параметры адреса). Когда уходит — показывает
+ *  себя такой, какой была при последнем адресе, а не новую страницу. */
 function FrozenOutlet() {
   const outlet = useOutlet()
-  const [frozen] = useState(outlet)
-  return frozen
+  const { pathname } = useLocation()
+  const present = useIsPresent()
+  const [snap, setSnap] = useState({ pathname, outlet })
+  if (present && snap.pathname !== pathname) setSnap({ pathname, outlet })
+  return present ? outlet : snap.outlet
 }
 
 function PageMotion({ children }: { children: ReactNode }) {
   return (
     <motion.div
       className="route"
-      initial={{ opacity: 0, y: 18, filter: 'blur(8px)' }}
+      initial={{ opacity: 0, y: 14, filter: 'blur(10px)' }}
       // transitionEnd: после въезда снимаем filter совсем — иначе он ломает position: fixed у потомков.
       animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: PAGE_IN, transitionEnd: { filter: 'none' } }}
-      exit={{ opacity: 0, y: -10, filter: 'blur(4px)', transition: PAGE_OUT }}
+      exit={{ opacity: 0, y: -6, filter: 'blur(6px)', transition: PAGE_OUT }}
     >
       {children}
     </motion.div>
@@ -186,7 +199,7 @@ function PageMotion({ children }: { children: ReactNode }) {
 /** Смена «зоны» (лендинг ↔ онбординг ↔ приложение) — только растворением: внутри зоны есть фиксированные панели. */
 function AreaMotion({ children }: { children: ReactNode }) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { duration: 0.4 } }} exit={{ opacity: 0, transition: { duration: 0.18 } }}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }} exit={{ opacity: 0, transition: { duration: 0.26 } }}>
       {children}
     </motion.div>
   )
@@ -219,11 +232,14 @@ function OnboardingGate() {
 export function AppRoutes() {
   const location = useLocation()
   return (
+    <>
+    <TopLoader />
     <AnimatePresence mode="wait" initial={false} onExitComplete={scrollTop}>
       <AreaMotion key={areaOf(location.pathname)}>
         <AreaRoutes />
       </AreaMotion>
     </AnimatePresence>
+    </>
   )
 }
 
