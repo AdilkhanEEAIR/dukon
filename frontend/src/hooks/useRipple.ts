@@ -19,7 +19,7 @@ export const RIPPLE_TARGETS = [
   '.cal__day',
   '.stepper button',
   '.notif',
-  '.theme-switch',
+  '.theme-toggle',
   '.walk-row',
 ].join(', ')
 

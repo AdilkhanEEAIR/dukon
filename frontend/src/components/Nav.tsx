@@ -1,7 +1,7 @@
 // Навигация: таббар снизу (телефон, планшет) и рейл слева (ПК), переключатель магазина,
 // пилюля режима, тема (светлая/тёмная) с круговым раскрытием и выбор языка.
 
-import { Activity, Bell, Bot, Building2, FlaskConical, House, Info, Languages, MapPin, Package, PackageSearch, Plus, Radio, ScanLine, Settings } from 'lucide-react'
+import { Activity, Bell, Bot, Building2, FlaskConical, House, Info, Languages, MapPin, Package, PackageSearch, Plus, ScanLine, Settings } from 'lucide-react'
 import { motion } from 'motion/react'
 import type { MouseEvent } from 'react'
 import { flushSync } from 'react-dom'
@@ -9,38 +9,54 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useMode } from '../app/mode'
 import { useNotifications } from '../app/notifications'
 import { useSettings } from '../app/settings'
-import { useShops } from '../app/shops'
+import { useViewShop } from '../app/shops'
 import { DICTS, LOCALES, useI18n, useT, type Locale } from '../i18n'
 import { IconButton } from './Button'
 import { Dropdown } from './Dropdown'
 import { Pill } from './Pill'
-import { MoonGlyph, SunGlyph } from './ThemeIcon'
+import { Expand } from '@theme-toggles/react'
+import '@theme-toggles/react/styles/expand.css'
 import { LogoMark } from './Logo'
 
 export const REPO_URL = 'https://github.com/AdilkhanEEAIR/dukon'
 
+/** Подсказка к режиму: сколько обходов осталось, почему новые на паузе или почему демо. */
+export function useModeHint(): string {
+  const t = useT()
+  const { mode, reason, budget, status, liveReady } = useMode()
+  if (status === 'loading') return ''
+  if (mode === 'live') return liveReady ? t('mode.liveHint', { n: budget?.calls_left ?? 0 }) : t('mode.paused', { reason: t(`mode.reasons.${reason ?? 'unknown'}`) })
+  return reason ? t(`mode.reasons.${reason}`) : ''
+}
+
+/** Живая точка: пульсирует, пока модели доступны; на паузе — стоит. */
+export function LiveDot({ paused }: { paused?: boolean }) {
+  return <span className={`live-dot${paused ? ' is-paused' : ''}`} aria-hidden />
+}
+
 export function ModePill({ compact }: { compact?: boolean }) {
   const t = useT()
-  const { mode, reason, budget, status } = useMode()
+  const { mode, reason, status, liveReady } = useMode()
+  const hint = useModeHint()
   if (status === 'loading') return <Pill>…</Pill>
   if (mode === 'live') {
     return (
-      <Pill tone="accent" icon={<Radio size={13} />}>
+      <Pill tone="accent" icon={<LiveDot paused={!liveReady} />} className="mode-pill">
         {t('mode.live')}
-        {!compact && budget ? <span className="c-3"> · {t('mode.liveHint', { n: budget.calls_left })}</span> : null}
+        {!compact && hint ? <span className="c-3"> · {hint}</span> : null}
       </Pill>
     )
   }
   return (
     <Pill tone="low" icon={<FlaskConical size={13} />}>
       {t('mode.demo')}
-      {!compact && reason ? <span style={{ fontWeight: 500 }}> · {t(`mode.reasons.${reason}`)}</span> : null}
+      {!compact && reason ? <span style={{ fontWeight: 500 }}> · {hint}</span> : null}
     </Pill>
   )
 }
 
-/** Светлая ↔ тёмная: «капсула» с бегунком, как системный переключатель. Тема раскрывается кругом
- *  из точки нажатия (View Transitions); без поддержки — просто меняется. */
+/** Светлая ↔ тёмная: солнце с лучами-точками сворачивается в месяц (Expand из toggles.dev), а сама тема
+ *  раскрывается кругом из точки нажатия (View Transitions); без поддержки — просто меняется. */
 export function ThemeToggle() {
   const t = useT()
   const { update, resolvedTheme, resolvedMotion } = useSettings()
@@ -63,25 +79,16 @@ export function ThemeToggle() {
     })
   }
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={resolvedTheme === 'dark'}
+    <Expand
+      toggled={resolvedTheme === 'dark'}
+      duration={750}
+      onClick={onClick}
+      className="theme-toggle"
       aria-label={t('theme.toggle')}
       title={t('theme.toggle')}
-      className="theme-switch"
-      data-theme={resolvedTheme}
       data-testid="theme-toggle"
-      onClick={onClick}
-    >
-      <span className="theme-switch__knob" aria-hidden />
-      <span className={`theme-switch__opt${resolvedTheme === 'light' ? ' is-on' : ''}`}>
-        <SunGlyph />
-      </span>
-      <span className={`theme-switch__opt${resolvedTheme === 'dark' ? ' is-on' : ''}`}>
-        <MoonGlyph />
-      </span>
-    </button>
+      data-theme={resolvedTheme}
+    />
   )
 }
 
@@ -103,11 +110,11 @@ export function LangSwitch({ compact, block, align }: { compact?: boolean; block
   )
 }
 
-/** Переключатель магазина: все филиалы владельца + «Добавить филиал». */
+/** Переключатель магазина: все филиалы владельца + «Добавить филиал». В демо — филиалы демо-сети. */
 export function ShopSwitcher({ variant = 'rail' }: { variant?: 'rail' | 'title' }) {
   const t = useT()
   const navigate = useNavigate()
-  const { shops, current, select } = useShops()
+  const { shops, current, select, demo } = useViewShop()
   if (!current) return null
   return (
     <Dropdown<string>
@@ -143,17 +150,19 @@ export function ShopSwitcher({ variant = 'rail' }: { variant?: 'rail' | 'title' 
             <Building2 size={15} />
             {t('branches.subtitle')}
           </button>
-          <button
-            type="button"
-            className="dd__action"
-            onClick={() => {
-              close()
-              navigate('/app/settings#shops')
-            }}
-          >
-            <Plus size={15} />
-            {t('shops.add')}
-          </button>
+          {!demo && (
+            <button
+              type="button"
+              className="dd__action"
+              onClick={() => {
+                close()
+                navigate('/app/settings#shops')
+              }}
+            >
+              <Plus size={15} />
+              {t('shops.add')}
+            </button>
+          )}
         </>
       )}
     />
@@ -227,7 +236,8 @@ export function Rail() {
               {({ isActive }) => (
                 <>
                   {isActive && <motion.span layoutId="rail-indicator" className="rail-link__bg" transition={{ type: 'spring', duration: 0.35, bounce: 0.12 }} />}
-                  <Icon size={18} className="rail-link__icon" />
+                  {/* Колокольчик: новый ключ на каждое новое уведомление — иконка перемонтируется и звякает. */}
+                  <Icon key={item.key === 'notifications' ? `bell-${unread}` : item.key} size={18} className={`rail-link__icon${item.key === 'notifications' && unread > 0 ? ' bell-ring' : ''}`} />
                   <span className="rail-link__text">{t(`nav.${item.key}`)}</span>
                   {item.key === 'notifications' && unread > 0 ? (
                     <span className="rail-link__badge">
@@ -261,9 +271,7 @@ export function Rail() {
 /** Режим работы в рейле — одна пилюля; причина («нет ключа моделей») — в подсказке и на странице «Система»:
  *  владельцу магазина служебная строка внизу меню ни к чему. */
 function RailMode() {
-  const t = useT()
-  const { mode, reason, budget, status } = useMode()
-  const hint = status === 'loading' ? '' : mode === 'live' ? t('mode.liveHint', { n: budget?.calls_left ?? 0 }) : reason ? t(`mode.reasons.${reason}`) : ''
+  const hint = useModeHint()
   return (
     <Link to="/app/system" className="rail__mode" title={hint} data-testid="rail-mode">
       <ModePill compact />
