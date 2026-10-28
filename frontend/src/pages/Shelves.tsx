@@ -3,19 +3,23 @@
 import { ArrowLeftRight, Package, RefreshCw, ScanLine, Wallet } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useMemo, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ItemChange, Status, Walk, WalkDiff } from '../api/types'
-import { DEMO_SHOP_ID, useLatest } from '../app/data'
+import { useLatest } from '../app/data'
 import { Button } from '../components/Button'
 import { CountUp } from '../components/CountUp'
 import { Drawer } from '../components/Drawer'
 import { ItemDetail, countHistory } from '../components/ItemDetail'
 import { ItemRow } from '../components/ItemRow'
 import { StockChart } from '../components/charts/Charts'
+import { Donut, type DonutSlice } from '../components/charts/Donut'
+import { useChartColors } from '../components/charts/theme'
 import { PageActions } from '../components/Nav'
 import { Segmented } from '../components/Segmented'
 import { EmptyState, ErrorState, ReportSkeleton } from '../components/States'
+import { ExportMenu } from '../components/ExportMenu'
+import { reportTable } from '../lib/export'
 import { useAsync } from '../hooks/useAsync'
 import { prefersReducedMotion } from '../hooks/useCountUp'
 import { useI18n } from '../i18n'
@@ -23,7 +27,7 @@ import { formatHours, formatWhen } from '../lib/format'
 import { Money } from '../components/Money'
 import { WalkCalendar } from '../components/WalkCalendar'
 
-type Filter = 'all' | 'out_of_stock' | 'low_stock' | 'price_mismatch'
+type Filter = 'all' | 'out_of_stock' | 'low_stock' | 'price_mismatch' | 'ok'
 
 const pause = (ms: number) => new Promise<void>((r) => (ms > 0 ? setTimeout(r, ms) : r()))
 
@@ -35,10 +39,8 @@ interface Report {
 
 export function ShelvesPage() {
   const { id } = useParams()
-  const [params] = useSearchParams()
   const { t } = useI18n()
   const { latest, reload } = useLatest()
-  const wantDemo = params.get('demo') === '1'
 
   // Конкретный обход грузим отдельно; «последний» берём из общего контекста, чтобы не дублировать запрос.
   const specific = useAsync<Report>(
@@ -53,19 +55,10 @@ export function ShelvesPage() {
     [id],
     !!id,
   )
-  const demo = useAsync<Report | null>(
-    async () => {
-      const walks = await api.walks('demo', DEMO_SHOP_ID)
-      if (!walks.length) return null
-      const walk = walks[walks.length - 1]
-      return { walk, diff: await api.diff(walk.id), walks }
-    },
-    [wantDemo],
-    wantDemo && !id,
-  )
-
-  const state = id ? specific.state : wantDemo ? demo.state : latest
-  const refetch = id ? specific.refetch : wantDemo ? demo.refetch : reload
+  // Без id — последний обход магазина на экране: в живом режиме свой, в демо — демо-филиала.
+  const state = id ? specific.state : latest
+  const refetch = id ? specific.refetch : reload
+  const report = state.status === 'success' ? state.data : null
 
   return (
     <div className="page stagger" data-testid="shelves">
@@ -77,6 +70,7 @@ export function ShelvesPage() {
           <Button variant="secondary" size="sm" onClick={() => void refetch()} icon={<RefreshCw size={14} />} className="hide-mobile">
             {t('shelves.refresh')}
           </Button>
+          {report && <ExportMenu build={(ctx) => reportTable(report, ctx)} testId="export-report" />}
           <PageActions />
         </div>
       </header>
@@ -101,15 +95,35 @@ function ReportBody({ report }: { report: Report }) {
   const [open, setOpen] = useState<ItemChange | null>(null)
   const close = useCallback(() => setOpen(null), [])
 
+  const colors = useChartColors()
+  const okCount = diff.changes.filter((c) => c.status === 'ok').length
   const counts: Record<Filter, number> = {
     all: diff.changes.filter((c) => c.status !== 'ok').length,
     out_of_stock: diff.out_of_stock,
     low_stock: diff.low_stock,
     price_mismatch: diff.price_mismatch,
+    ok: okCount,
   }
+  // Кольцо статусов: клик по сектору — тот же фильтр, что и вкладки над списком.
+  const slices = useMemo<DonutSlice[]>(
+    () =>
+      (
+        [
+          ['out_of_stock', colors.out],
+          ['low_stock', colors.low],
+          ['price_mismatch', colors.price],
+          ['ok', colors.ok],
+        ] as const
+      ).map(([key, color]) => ({ id: key, name: t(`status.${key}`), value: counts[key], color })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [diff, colors, t],
+  )
   const visible = useMemo(() => (filter === 'all' ? diff.changes.filter((c) => c.status !== 'ok') : diff.changes.filter((c) => c.status === (filter as Status))), [diff, filter])
+  const pickSlice = useCallback((id: string | null) => setFilter((id as Filter | null) ?? 'all'), [])
   const ok = diff.changes.filter((c) => c.status === 'ok')
   const since = diff.walk_before_id ? t('shelves.sinceLast', { t: formatHours(diff.hours_between, t) }) : t('shelves.firstWalk')
+  // Сколько раз обход действительно звал модели: 0 у демо и у живого обхода, целиком взятого из кэша.
+  const modelCalls = walk.photos.reduce((a, p) => a + p.model_calls, 0)
 
   return (
     <div className="two-col report" style={{ alignItems: 'start' }}>
@@ -192,14 +206,19 @@ function ReportBody({ report }: { report: Report }) {
           <span className="h3">
             {formatWhen(walk.created_at, locale)}
           </span>
-          <div className="rows">
-            <div className="kv"><span className="kv__k">{t('common.photos', { n: walk.photos.length })}</span><span className="kv__v">{walk.photos.reduce((a, p) => a + p.model_calls, 0) > 0 ? `${walk.photos.reduce((a, p) => a + p.model_calls, 0)} × AI` : t('mode.demo')}</span></div>
-            <div className="kv"><span className="kv__k row" style={{ gap: 8 }}><span className="swatch" style={{ background: 'var(--out)' }} />{t('status.out_of_stock')}</span><span className="kv__v">{diff.out_of_stock}</span></div>
-            <div className="kv"><span className="kv__k row" style={{ gap: 8 }}><span className="swatch" style={{ background: 'var(--low)' }} />{t('status.low_stock')}</span><span className="kv__v">{diff.low_stock}</span></div>
-            <div className="kv"><span className="kv__k row" style={{ gap: 8 }}><span className="swatch" style={{ background: 'var(--price)' }} />{t('status.price_mismatch')}</span><span className="kv__v">{diff.price_mismatch}</span></div>
-            <div className="kv"><span className="kv__k row" style={{ gap: 8 }}><span className="swatch" style={{ background: 'var(--ok)' }} />{t('status.ok')}</span><span className="kv__v">{diff.changes.filter((c) => c.status === 'ok').length}</span></div>
+          <div className="kv" style={{ padding: 0 }}>
+            <span className="kv__k">{t('common.photos', { n: walk.photos.length })}</span>
+            <span className="kv__v">{modelCalls > 0 ? `${modelCalls} × AI` : walk.source === 'demo' ? t('mode.demo') : t('shelves.cached')}</span>
           </div>
-          <StatusBars diff={diff} />
+          <Donut
+            slices={slices}
+            total={<CountUp value={diff.changes.length} />}
+            caption={t('shelves.positions', { n: diff.changes.length })}
+            selected={filter === 'all' ? null : filter}
+            onSelect={pickSlice}
+            label={t('shelves.statusShare')}
+            testId="status-donut"
+          />
         </div>
         <Button variant="secondary" block to="/app/orders" icon={<Package size={18} />}>
           {t('shelves.seeOrders')}
@@ -210,22 +229,6 @@ function ReportBody({ report }: { report: Report }) {
       <Drawer open={open !== null} onClose={close} label={open ? product(open.name) : ''}>
         {open && <ItemDetail change={open} history={countHistory(walks, open.sku)} />}
       </Drawer>
-    </div>
-  )
-}
-
-/** Доли статусов одной полоской: сколько позиций в порядке, сколько требуют внимания. */
-function StatusBars({ diff }: { diff: WalkDiff }) {
-  const total = Math.max(1, diff.changes.length)
-  const parts: { key: Status; n: number; color: string }[] = [
-    { key: 'out_of_stock', n: diff.out_of_stock, color: 'var(--out)' },
-    { key: 'low_stock', n: diff.low_stock, color: 'var(--low)' },
-    { key: 'price_mismatch', n: diff.price_mismatch, color: 'var(--price)' },
-    { key: 'ok', n: diff.changes.filter((c) => c.status === 'ok').length, color: 'var(--ok)' },
-  ]
-  return (
-    <div className="bar" style={{ display: 'flex', gap: 2, background: 'transparent' }} aria-hidden>
-      {parts.map((p) => (p.n > 0 ? <span key={p.key} style={{ width: `${(p.n / total) * 100}%`, background: p.color, borderRadius: 3 }} /> : null))}
     </div>
   )
 }

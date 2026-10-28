@@ -1,18 +1,23 @@
 // Филиалы: ответ на вопрос «у меня два магазина и больше — где я теряю». Сводка по каждой точке,
-// график потерь по филиалам и быстрый переход. Пока у своих магазинов нет обходов — демо-сеть.
+// график потерь по филиалам и быстрый переход. Живой режим — только свои магазины, демо — демо-сеть.
 
 import { Building2, CheckCircle2, ChevronRight, Clock, MapPin, MapPinned, Plus } from 'lucide-react'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 import type { BranchSummary } from '../api/types'
+import { useMode } from '../app/mode'
 import { useSettings } from '../app/settings'
 import { useShops } from '../app/shops'
 import { Button, IconButton } from '../components/Button'
 import { BranchesChart } from '../components/charts/Charts'
+import { Donut, type DonutSlice } from '../components/charts/Donut'
+import { useChartColors } from '../components/charts/theme'
 import { PageActions } from '../components/Nav'
 import { Pill } from '../components/Pill'
 import { ErrorState, ReportSkeleton } from '../components/States'
+import { ExportMenu } from '../components/ExportMenu'
+import { branchesTable } from '../lib/export'
 import { BranchesMap, type MapPin as MapPinData } from '../components/map/GeoMap'
 import { hasPoint } from '../lib/geo'
 import { useAsync } from '../hooks/useAsync'
@@ -28,11 +33,11 @@ interface Overview {
 export function BranchesPage() {
   const { t } = useI18n()
   const { deviceId } = useSettings()
+  const { mode } = useMode()
   const { state, refetch } = useAsync<Overview>(async () => {
-    const mine = await api.overview('mine', deviceId)
-    if (mine.some((r) => r.walks > 0)) return { rows: mine, demo: false }
-    return { rows: await api.overview('demo'), demo: true }
-  }, [deviceId])
+    if (mode === 'demo') return { rows: await api.overview('demo'), demo: true }
+    return { rows: await api.overview('mine', deviceId), demo: false }
+  }, [deviceId, mode])
 
   return (
     <div className="page stagger" data-testid="branches">
@@ -42,9 +47,12 @@ export function BranchesPage() {
           <p className="page-head__sub">{t('branches.subtitle')}</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <Button size="sm" variant="secondary" to="/app/settings#shops" icon={<Plus size={14} />} className="hide-mobile">
-            {t('shops.add')}
-          </Button>
+          {mode === 'live' && (
+            <Button size="sm" variant="secondary" to="/app/settings#shops" icon={<Plus size={14} />} className="hide-mobile">
+              {t('shops.add')}
+            </Button>
+          )}
+          {state.status === 'success' && <ExportMenu build={(ctx) => branchesTable(state.data.rows, ctx)} testId="export-branches" />}
           <PageActions />
         </div>
       </header>
@@ -72,6 +80,17 @@ function BranchesBody({ overview }: { overview: Overview }) {
   const worst = [...rows].sort((a, b) => b.loss_per_day - a.loss_per_day)[0]
   const [focus, setFocus] = useState<string | null>(null)
   const list = useRef<HTMLDivElement>(null)
+  const colors = useChartColors()
+
+  // Кольцо «где уходят деньги»: только филиалы с потерями, самый дорогой — самым тёмным красным.
+  const share = useMemo<DonutSlice[]>(
+    () =>
+      [...rows]
+        .filter((r) => r.loss_per_day > 0)
+        .sort((a, b) => b.loss_per_day - a.loss_per_day)
+        .map((r, i) => ({ id: r.shop.id, name: r.shop.name, value: r.loss_per_day, color: colors.lossRamp[Math.min(i, colors.lossRamp.length - 2)], display: fmt(r.loss_per_day) })),
+    [rows, colors, fmt],
+  )
 
   // Булавки: бирка «название — потери в день». Без потерь — спокойный тон, с потерями — красный.
   const pins = useMemo<MapPinData[]>(
@@ -88,12 +107,13 @@ function BranchesBody({ overview }: { overview: Overview }) {
     [rows, fmt, t],
   )
 
-  // Нажали на булавку — строка филиала подсвечивается и приезжает в поле зрения.
+  // Нажали на булавку или сектор кольца — строка филиала подсвечивается и приезжает в поле зрения.
   const focusFromMap = useCallback((id: string) => {
     setFocus(id)
     const row = list.current?.querySelector<HTMLElement>(`[data-shop="${id}"]`)
     row?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [setFocus])
+  const focusFromDonut = useCallback((id: string | null) => (id ? focusFromMap(id) : setFocus(null)), [focusFromMap, setFocus])
 
   return (
     <div className="stack stagger" style={{ gap: 22 }}>
@@ -136,6 +156,12 @@ function BranchesBody({ overview }: { overview: Overview }) {
               </span>
             )}
           </div>
+          {share.length > 0 && (
+            <section className="sheet sheet--pad stack" style={{ gap: 14 }} data-testid="branches-share">
+              <h3 className="h3">{rich('branches.shareTitle')}</h3>
+              <Donut slices={share} total={fmt(total)} caption={t('common.perDay')} selected={focus} onSelect={focusFromDonut} label={t('branches.shareTitle')} testId="branches-donut" />
+            </section>
+          )}
           <BranchesChart rows={rows.map((r) => ({ id: r.shop.id, name: r.shop.name, value: r.loss_per_day }))} format={fmt} alt={settings.currency === 'KGS' ? usd : undefined} />
         </div>
 
