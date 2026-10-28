@@ -8,6 +8,9 @@ export function useOnline(): boolean {
     const off = () => setOnline(false)
     window.addEventListener('online', on)
     window.addEventListener('offline', off)
+    // Сеть могла пропасть между первой отрисовкой и подпиской — событие тогда уже прошло мимо.
+    // Сверяемся с браузером ещё раз сразу после подписки.
+    if (!navigator.onLine) off()
     return () => {
       window.removeEventListener('online', on)
       window.removeEventListener('offline', off)
