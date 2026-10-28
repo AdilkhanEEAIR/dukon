@@ -1,0 +1,260 @@
+/* Заход 1.2: слова-потери, иконки товаров, премиальные hover и отклики, прожектор под курсором,
+   новая иконка темы и спокойный режим анимаций. Подключается последним — уточняет базовые компоненты. */
+
+:root {
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --glow-accent: 0 12px 30px -14px color-mix(in oklab, var(--accent) 85%, transparent);
+  --spot: color-mix(in oklab, var(--accent) 11%, transparent);
+  --hover-shadow: 0 1px 2px rgba(16, 21, 18, 0.06), 0 18px 40px -20px rgba(16, 21, 18, 0.35);
+}
+:root[data-theme='dark'] {
+  --spot: color-mix(in oklab, var(--accent) 8%, transparent);
+  --hover-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 22px 48px -20px rgba(0, 0, 0, 0.85);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+/* ================= слова-потери: красным, жирно и с «маркером» снизу ================= */
+.loss-word {
+  color: var(--out);
+  font-weight: 800;
+  padding: 0 1px;
+  border-radius: 2px;
+  background-image: linear-gradient(color-mix(in oklab, var(--out) 24%, transparent), color-mix(in oklab, var(--out) 24%, transparent));
+  background-repeat: no-repeat;
+  background-position: 0 90%;
+  background-size: 100% 0.38em;
+  /* маркер прочерчивается слева направо после появления блока — взгляд цепляется за слово */
+  animation: loss-mark 900ms var(--ease-smooth) 420ms backwards;
+}
+@keyframes loss-mark {
+  from { background-size: 0% 0.38em; }
+}
+/* на бумажной бирке фон светлый в обеих темах — берём тёмный красный, чтобы читалось */
+.tag .loss-word { color: #c2321f; background-image: linear-gradient(#f6d2cb, #f6d2cb); }
+.loss-label { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.metric__label .loss-word { font-size: 14px; }
+
+/* потери филиала в строке списка — тоже красным, если они есть */
+.branch-row__stats b.c-out { color: var(--out); font-weight: 800; }
+
+/* ================= иконки товаров ================= */
+.pi {
+  --pi-size: 40px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--pi-size);
+  height: var(--pi-size);
+  border-radius: calc(var(--pi-size) * 0.3);
+  background:
+    radial-gradient(120% 90% at 28% 12%, color-mix(in oklab, var(--pi-hue) 8%, #ffffff) 0%, transparent 62%),
+    color-mix(in oklab, var(--pi-hue) 17%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--pi-hue) 20%, transparent);
+  transition: transform 420ms var(--ease-spring), box-shadow 300ms var(--ease-smooth);
+}
+:root[data-theme='dark'] .pi {
+  background:
+    radial-gradient(120% 90% at 28% 12%, color-mix(in oklab, var(--pi-hue) 30%, transparent) 0%, transparent 62%),
+    color-mix(in oklab, var(--pi-hue) 20%, var(--surface-2));
+}
+.pi__art {
+  width: 90%;
+  height: 90%;
+  overflow: visible;
+  transition: transform 460ms var(--ease-spring), filter 300ms ease, opacity 300ms ease;
+}
+/* нет на полке: пунктирный контур пустого места и бледный рисунок — как дыра на настоящей полке */
+:root .pi.pi--empty {
+  background: transparent;
+  box-shadow: none;
+  outline: 1.5px dashed color-mix(in oklab, var(--out) 75%, transparent);
+  outline-offset: -1.5px;
+}
+.pi--empty .pi__art { filter: grayscale(1); opacity: 0.45; }
+
+/* ================= строки товаров ================= */
+.item-row { grid-template-columns: auto 1fr auto; transition: background-color 260ms var(--ease-smooth), transform 260ms var(--ease-smooth); }
+.item-row__go { color: var(--ink-3); opacity: 0; transform: translateX(-6px); transition: opacity 260ms var(--ease-smooth), transform 360ms var(--ease-spring); }
+@media (hover: hover) {
+  .item-row--link:hover .pi { transform: translateY(-1px); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--pi-hue) 35%, transparent), 0 8px 18px -10px color-mix(in oklab, var(--pi-hue) 70%, transparent); }
+  .item-row--link:hover .pi__art { transform: translateY(-2px) rotate(-7deg) scale(1.1); }
+  .item-row--link:hover .pi--empty .pi__art { transform: scale(1.04); }
+  .item-row--link:hover .item-row__go { opacity: 1; transform: none; }
+}
+@media (hover: none) {
+  .item-row__go { opacity: 0.5; transform: none; }
+}
+.item-row--link:active { transform: scale(0.99); }
+
+/* строки филиалов, заказов и магазинов получают поля и скругление — прожектору есть где светить */
+.branch-row,
+.order-line,
+.shop-card {
+  margin-inline: -10px;
+  padding-inline: 10px;
+  border-radius: var(--r-md);
+  transition: background-color 260ms var(--ease-smooth);
+}
+.order-line { padding-block: 12px; }
+@media (hover: hover) {
+  .branch-row:hover,
+  .order-line:hover,
+  .shop-card:hover { background: var(--surface-2); }
+  .order-line:hover .pi__art { transform: rotate(-7deg) scale(1.08); }
+}
+
+/* ================= прожектор под курсором ================= */
+:is(.lift, .step-card, .item-row--link, .notif, .branch-row, .model, .shop-card, .order-line) {
+  position: relative;
+  isolation: isolate;
+}
+:is(.lift, .step-card, .item-row--link, .notif, .branch-row, .model, .shop-card, .order-line)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(280px circle at var(--mx, 50%) var(--my, 50%), var(--spot), transparent 70%);
+  opacity: 0;
+  transition: opacity 420ms var(--ease-smooth);
+}
+@media (hover: hover) {
+  :is(.lift, .step-card, .item-row--link, .notif, .branch-row, .model, .shop-card, .order-line):hover::after { opacity: 1; }
+}
+
+/* ================= кнопки ================= */
+.btn {
+  transition:
+    transform 200ms var(--ease-smooth),
+    background-color 280ms var(--ease-smooth),
+    border-color 280ms var(--ease-smooth),
+    color 280ms var(--ease-smooth),
+    box-shadow 360ms var(--ease-smooth),
+    opacity 200ms ease;
+}
+.btn svg { transition: transform 360ms var(--ease-spring); }
+@media (hover: hover) {
+  .btn:hover:not(:disabled) { transform: translateY(-1px); }
+  .btn--primary:hover:not(:disabled) { box-shadow: var(--glow-accent); }
+  .btn--secondary:hover:not(:disabled) { box-shadow: var(--hover-shadow); }
+  .btn:hover:not(:disabled) svg:first-child:not(:last-child) { transform: scale(1.12) rotate(-6deg); }
+}
+.btn:active:not(:disabled) { transform: translateY(0) scale(0.97); transition-duration: 90ms; }
+/* блик проходит по главной кнопке при наведении — как свет по глянцевой этикетке */
+.btn--primary { isolation: isolate; overflow: hidden; }
+.btn--primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(110deg, transparent 32%, rgba(255, 255, 255, 0.32) 50%, transparent 68%);
+  transform: translateX(-120%);
+  transition: transform 800ms var(--ease-smooth);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .btn--primary:hover:not(:disabled)::after { transform: translateX(120%); }
+}
+
+/* иконки-кнопки: подложка вырастает из центра с лёгкой пружиной */
+.icon-btn {
+  isolation: isolate;
+  transition: transform 200ms var(--ease-smooth), color 260ms var(--ease-smooth), border-color 260ms var(--ease-smooth), background-color 260ms var(--ease-smooth);
+}
+.icon-btn::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--surface-2);
+  transform: scale(0.4);
+  opacity: 0;
+  transition: transform 420ms var(--ease-spring), opacity 260ms var(--ease-smooth);
+}
+.icon-btn > svg { transition: transform 420ms var(--ease-spring); }
+@media (hover: hover) {
+  .icon-btn:hover { background: transparent; color: var(--ink); }
+  .icon-btn--outline:hover { background: var(--surface); border-color: var(--line-strong); }
+  .icon-btn:hover::before { transform: scale(1); opacity: 1; }
+  .icon-btn:hover > svg { transform: scale(1.1); }
+  .nudge.icon-btn:hover > svg { transform: translateX(3px); }
+}
+.icon-btn:active { transform: scale(0.92); }
+.icon-btn:active::before { background: var(--bg-sunken); }
+
+/* ================= карточки, поля, выбор ================= */
+.lift { transition: transform 360ms var(--ease-smooth), box-shadow 360ms var(--ease-smooth), border-color 280ms var(--ease-smooth), background-color 280ms ease; }
+@media (hover: hover) {
+  .lift:hover { transform: translateY(-3px); box-shadow: var(--hover-shadow); }
+  .sheet:not(.sheet--soft):hover { border-color: var(--line-strong); }
+  .metric:hover .metric__icon { transform: rotate(-8deg) scale(1.1); }
+  .step-card { transition: transform 360ms var(--ease-smooth), box-shadow 360ms var(--ease-smooth), border-color 280ms ease; }
+  .step-card:hover { box-shadow: var(--hover-shadow); }
+  .input:hover:not(:focus-visible), .select:hover:not(:focus-visible) { border-color: var(--ink-3); }
+  .choice:hover:not(.is-active) { transform: translateY(-2px); border-color: var(--line-strong); box-shadow: var(--hover-shadow); }
+}
+.sheet { transition: border-color 300ms var(--ease-smooth), background-color 300ms var(--ease-smooth); }
+.metric__icon { transition: transform 460ms var(--ease-spring); }
+.input,
+.select { transition: border-color 240ms var(--ease-smooth), box-shadow 300ms var(--ease-smooth), background-color 240ms ease; }
+.choice { transition: transform 280ms var(--ease-smooth), border-color 240ms ease, background-color 240ms ease, color 240ms ease, box-shadow 320ms var(--ease-smooth); }
+.choice:active { transform: scale(0.96); transition-duration: 90ms; }
+.choice.is-active > svg { animation: choice-pop 520ms var(--ease-spring); }
+@keyframes choice-pop {
+  0% { transform: scale(0.7) rotate(-12deg); }
+  100% { transform: none; }
+}
+.rail-link { transition: background-color 260ms var(--ease-smooth), color 260ms var(--ease-smooth), transform 200ms var(--ease-smooth); }
+
+/* ================= иконка темы ================= */
+.theme-icon { overflow: visible; transition: transform 560ms var(--ease-spring), color 420ms var(--ease-smooth); }
+.theme-icon--sun { color: #e39a12; }
+.theme-icon--moon { color: #aebcff; }
+:root[data-theme='light'] .theme-icon--moon { color: #5866c9; }
+@media (hover: hover) {
+  .theme-btn:hover > .theme-btn__icon > .theme-icon--sun { transform: rotate(45deg) scale(1.08); }
+  .theme-btn:hover > .theme-btn__icon > .theme-icon--moon { transform: rotate(-16deg) scale(1.08); }
+}
+.theme-btn > .theme-btn__icon { transition: none; }
+
+/* ================= открытие страницы: каскад заметнее и мягче ================= */
+.route { min-width: 0; }
+.stagger > * { animation: rise 640ms var(--ease-smooth) backwards; }
+.stagger > :nth-child(1) { animation-delay: 40ms; }
+.stagger > :nth-child(2) { animation-delay: 100ms; }
+.stagger > :nth-child(3) { animation-delay: 160ms; }
+.stagger > :nth-child(4) { animation-delay: 220ms; }
+.stagger > :nth-child(5) { animation-delay: 280ms; }
+.stagger > :nth-child(6) { animation-delay: 340ms; }
+.stagger > :nth-child(7) { animation-delay: 400ms; }
+.stagger > :nth-child(8) { animation-delay: 460ms; }
+.stagger > :nth-child(n + 9) { animation-delay: 520ms; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(20px) scale(0.985); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+/* ================= спокойный режим: без сдвигов, только проявления и цвет ================= */
+@keyframes fade-only {
+  from { opacity: 0; }
+}
+:root[data-motion='calm'] { scroll-behavior: auto; }
+:root[data-motion='calm'] .stagger > *,
+:root[data-motion='calm'] .hero__visual,
+:root[data-motion='calm'] .tag--enter { animation-name: fade-only; animation-duration: 420ms; }
+:root[data-motion='calm'] .loss-word { animation: none; }
+:root[data-motion='calm'] :is(.btn, .icon-btn, .lift, .step-card, .choice, .item-row, .pi, .pi__art, .theme-icon, .metric__icon, .rail-link__icon):hover,
+:root[data-motion='calm'] .item-row--link:hover :is(.pi, .pi__art),
+:root[data-motion='calm'] .theme-btn:hover .theme-icon { transform: none; }
+:root[data-motion='calm'] .btn--primary::after { display: none; }
+:root[data-motion='calm'] .shelf-art :is(.box, .box-label, .box-chip) { opacity: 1; animation: none; }
+:root[data-motion='calm'] .shelf-art .scanline { display: none; }

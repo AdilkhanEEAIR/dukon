@@ -695,7 +695,7 @@
 .notif--unread::before { content: ''; position: absolute; left: -10px; top: 14px; bottom: 14px; width: 3px; border-radius: 2px; background: var(--accent); }
 .notif--read { opacity: 0.6; }
 
-/* ---- переключатель темы (иконка крутится, фон плавно меняется) */
+/* ---- переключатель темы (солнце превращается в луну — см. ThemeIcon и effects.css) */
 .theme-btn { overflow: hidden; }
 .theme-btn__icon { display: inline-flex; }
 
@@ -828,10 +828,6 @@
   8% { opacity: 0.7; }
   92% { opacity: 0.7; }
   100% { transform: translateX(560px); opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .shelf-art .box, .shelf-art .box-label, .shelf-art .box-chip { opacity: 1; animation: none; }
-  .shelf-art .scanline { display: none; }
 }
 
 /* ---- мини-график */
@@ -987,28 +983,13 @@
 .dd:has(.shop-title) .dd__trigger { border: 0; background: transparent; padding: 0; min-height: 0; gap: 6px; box-shadow: none; }
 .shop-title { display: block; min-width: 0; }
 
-/* ---- появление элементов страницы: короткий каскад, один раз при открытии */
+/* ---- появление элементов страницы: каскад при открытии (длительности и кривые — в effects.css) */
 /* backwards, а не both: после появления у элемента не остаётся transform, и выпадающие меню не прячутся под соседями */
-.stagger > * { animation: rise 420ms var(--ease-out) backwards; }
 .stagger > :has(.dd[data-open]) { position: relative; z-index: 30; }
-.stagger > :nth-child(1) { animation-delay: 0ms; }
-.stagger > :nth-child(2) { animation-delay: 40ms; }
-.stagger > :nth-child(3) { animation-delay: 80ms; }
-.stagger > :nth-child(4) { animation-delay: 120ms; }
-.stagger > :nth-child(5) { animation-delay: 160ms; }
-.stagger > :nth-child(6) { animation-delay: 200ms; }
-.stagger > :nth-child(7) { animation-delay: 240ms; }
-.stagger > :nth-child(8) { animation-delay: 280ms; }
-.stagger > :nth-child(n + 9) { animation-delay: 320ms; }
-@keyframes rise {
-  from { opacity: 0; transform: translateY(10px); filter: blur(2px); }
-  to { opacity: 1; transform: none; filter: none; }
-}
 
-/* ---- живые карточки: приподнимаются под курсором, но только там, где курсор есть */
-.lift { transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out), background-color var(--dur) ease; }
+/* ---- живые карточки: приподнимаются под курсором (переходы — в effects.css) */
 @media (hover: hover) {
-  .lift:hover { transform: translateY(-2px); box-shadow: var(--shadow-pop); border-color: var(--line-strong); }
+  .lift:hover { border-color: var(--line-strong); }
 }
 .lift:active { transform: translateY(0) scale(0.99); }
 
@@ -1086,10 +1067,6 @@
 }
 .hero__visual { animation: rise 700ms var(--ease-out) 120ms backwards; }
 
-@media (prefers-reduced-motion: reduce) {
-  .stagger > *, .hero__visual, .tag--enter { animation: none; }
-  .lift:hover, .step-card:hover { transform: none; }
-}
 
 /* образец цвета в легенде: квадрат, а не точка — читается как ключ к полоске */
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }

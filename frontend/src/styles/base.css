@@ -283,16 +283,9 @@ svg {
   .page { gap: 28px; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .page { animation: none; }
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
+/* Спокойный режим (системное «уменьшить движение» или выбор в настройках) — атрибут data-motion='calm' на <html>.
+   Раньше здесь выключалось вообще всё, и при выключенных «Эффектах анимации» в Windows сайт казался мёртвым.
+   Теперь убираются только сдвиги: проявления и смена цвета остаются — их правила в effects.css. */
 
 /* переход между страницами через View Transitions — кроссфейд без скачка */
 ::view-transition-old(root),

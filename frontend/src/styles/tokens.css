@@ -102,14 +102,6 @@
   --focus: 0 0 0 3px rgba(120, 215, 166, 0.35);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --dur-press: 0ms;
-    --dur-fast: 0ms;
-    --dur: 0ms;
-    --dur-slow: 0ms;
-  }
-}
 
 /* Цвета графиков: акцент внутри «полосы яркости» dataviz, тень — нейтральный серый. Проверено валидатором. */
 :root {
@@ -119,4 +111,13 @@
 :root[data-theme='dark'] {
   --chart-accent: #3fa572;
   --chart-muted: #56645a;
+}
+
+/* Потери на графиках — статусный «critical» из dataviz: один и тот же в обеих темах, контраст ≥ 3:1 к поверхности. */
+:root {
+  --chart-loss: #d03b3b;
+  --chart-loss-hover: #b52f2f;
+}
+:root[data-theme='dark'] {
+  --chart-loss-hover: #e5534b;
 }
