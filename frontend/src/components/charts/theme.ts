@@ -14,6 +14,12 @@ export interface ChartColors {
   line: string
   surface: string
   out: string
+  low: string
+  price: string
+  ok: string
+  /** Ступени для колец: потери — от тёмно-красного к охре, деньги заказа — от бутылочного к мятному. */
+  lossRamp: string[]
+  accentRamp: string[]
   font: string
 }
 
@@ -35,6 +41,11 @@ export function readChartColors(): ChartColors {
     line: cssVar('--line', '#dfe3da'),
     surface: cssVar('--surface', '#ffffff'),
     out: cssVar('--out', '#c2321f'),
+    low: cssVar('--low', '#9a6400'),
+    price: cssVar('--price', '#2c4f8f'),
+    ok: cssVar('--ok', '#2f6b3a'),
+    lossRamp: [1, 2, 3, 4, 5].map((i) => cssVar(`--ramp-loss-${i}`, ['#b3261e', '#d9583a', '#ea8a4b', '#f1b562', '#c7cdc1'][i - 1])),
+    accentRamp: [1, 2, 3, 4, 5, 6].map((i) => cssVar(`--ramp-accent-${i}`, ['#0e5b3f', '#2f7d57', '#56a074', '#86c09a', '#b8dcc3', '#c7cdc1'][i - 1])),
     font: cssVar('--font-ui', 'Manrope, system-ui, sans-serif'),
   }
 }
