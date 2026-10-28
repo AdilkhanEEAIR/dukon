@@ -5,7 +5,9 @@
 // Правила из dataviz: одна ось, тонкие столбцы со скруглённым концом, легенда только при 2+ сериях,
 // подписи текстом темы, у каждого графика есть табличный вид.
 
-import { useMemo, type ReactNode } from 'react'
+import { ChartColumn, Table2 } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import type { ItemChange } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { EChart } from './EChart'
@@ -32,16 +34,60 @@ function labelWidth(): number {
   return typeof window !== 'undefined' && window.innerWidth < 600 ? 92 : 150
 }
 
+/** Высота содержимого — чтобы карточка плавно меняла рост, когда график сменяется таблицей. */
+function useContentHeight(ref: RefObject<HTMLDivElement | null>): number | 'auto' {
+  const [h, setH] = useState<number | 'auto'>('auto')
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => setH(el.offsetHeight || 'auto'))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
+  return h
+}
+
+type View = 'chart' | 'table'
+const SWAP = { duration: 0.9, ease: [0.16, 1, 0.3, 1] as const }
+
+/** Карточка графика: «График | Таблица» в шапке. Блоки сменяют друг друга (уход — вверх с размытием,
+ *  приход — снизу), а карточка плавно меняет высоту. Таблица — для тех, кому нужны точные числа. */
 export function ChartCard({ title, children, table }: { title: ReactNode; children: ReactNode; table: ReactNode }) {
   const { t } = useI18n()
+  const [view, setView] = useState<View>('chart')
+  const inner = useRef<HTMLDivElement>(null)
+  const height = useContentHeight(inner)
+  const group = useId()
   return (
-    <section className="sheet sheet--pad chart-card stack" style={{ gap: 8 }}>
-      <h3 className="h3">{title}</h3>
-      {children}
-      <details className="chart-table">
-        <summary className="small">{t('charts.tableView')}</summary>
-        {table}
-      </details>
+    <section className="sheet sheet--pad chart-card stack" style={{ gap: 12 }}>
+      <div className="chart-card__head">
+        <h3 className="h3">{title}</h3>
+        <div className="view-switch" role="tablist" aria-label={t('charts.viewSwitch')}>
+          {(['chart', 'table'] as View[]).map((v) => (
+            <button key={v} type="button" role="tab" aria-selected={view === v} className={`view-switch__btn${view === v ? ' is-active' : ''}`} onClick={() => setView(v)} data-testid={`view-${v}`}>
+              {view === v && <motion.span layoutId={`vs-${group}`} className="view-switch__thumb" transition={{ type: 'spring', duration: 0.45, bounce: 0.15 }} />}
+              {v === 'chart' ? <ChartColumn size={15} /> : <Table2 size={15} />}
+              <span>{v === 'chart' ? t('charts.asChart') : t('charts.asTable')}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <motion.div className="chart-card__body" animate={{ height }} transition={SWAP} style={{ overflow: 'hidden' }}>
+        <div ref={inner}>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={view}
+              initial={{ opacity: 0, y: 14, filter: 'blur(8px)' }}
+              animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transitionEnd: { filter: 'none' } }}
+              exit={{ opacity: 0, y: -10, filter: 'blur(8px)', transition: { duration: 0.4 } }}
+              transition={SWAP}
+              data-testid={`chart-card-${view}`}
+            >
+              {view === 'chart' ? children : table}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </motion.div>
     </section>
   )
 }
