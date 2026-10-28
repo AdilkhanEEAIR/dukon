@@ -1,10 +1,14 @@
-// Последний обход текущего магазина и его сравнение — нужны главной, полкам, уведомлениям и заказам.
+// Последний обход магазина на экране и его сравнение — нужны главной, полкам, уведомлениям и заказам.
 // Грузим на уровне приложения и делимся через контекст, чтобы не дёргать сервер с каждой страницы.
+// Живой режим — только свои обходы (нет обходов — честное «пока пусто»); демо — обходы демо-филиала.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
-import type { Walk, WalkDiff } from '../api/types'
-import { useShops } from './shops'
+import type { Mode, Walk, WalkDiff } from '../api/types'
+import { useMode } from './mode'
+import { useShops, useViewShop } from './shops'
+
+export { DEMO_SHOP_ID } from './shops'
 
 export interface Latest {
   walk: Walk
@@ -25,13 +29,10 @@ interface DataValue {
 
 const Ctx = createContext<DataValue | null>(null)
 
-/** Демо-сеть: первый филиал показываем, пока у магазина нет своих обходов. */
-export const DEMO_SHOP_ID = 'demo-chuy'
-
-/** Свои обходы магазина важнее демо: если владелец уже прошёл полки, показываем его данные. */
-export async function loadLatest(shopId: string | null): Promise<Latest | null> {
-  const own = shopId ? await api.walks('live', shopId) : []
-  const walks = own.length ? own : await api.walks('demo', DEMO_SHOP_ID)
+/** Обходы магазина в выбранном режиме. Демо в живой режим не подмешиваем: там только настоящее. */
+export async function loadLatest(view: Mode, shopId: string | null): Promise<Latest | null> {
+  if (!shopId) return null
+  const walks = await api.walks(view === 'live' ? 'live' : 'demo', shopId)
   if (!walks.length) return null
   const walk = walks[walks.length - 1]
   const diff = await api.diff(walk.id)
@@ -39,8 +40,9 @@ export async function loadLatest(shopId: string | null): Promise<Latest | null> 
 }
 
 export function DataProvider({ children }: { children: ReactNode }) {
-  const { current, status: shopsStatus } = useShops()
-  const shopId = current?.id ?? null
+  const { status: shopsStatus } = useShops()
+  const { mode, status: modeStatus } = useMode()
+  const { id: shopId } = useViewShop()
   const [latest, setLatest] = useState<LatestState>({ status: 'idle' })
   const runId = useRef(0)
 
@@ -48,17 +50,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const id = ++runId.current
     setLatest({ status: 'loading' })
     try {
-      const data = await loadLatest(shopId)
+      const data = await loadLatest(mode, shopId)
       if (id === runId.current) setLatest({ status: 'success', data })
     } catch (error) {
       if (id === runId.current) setLatest({ status: 'error', error })
     }
-  }, [shopId])
+  }, [mode, shopId])
 
-  // Ждём список магазинов: иначе сначала покажем демо, а через секунду — свой обход (мигание).
+  // Ждём, пока станет ясно, какой режим и какой магазин: иначе сначала мелькнёт одно, через секунду — другое.
+  const settled = modeStatus !== 'loading' && (mode === 'demo' || shopsStatus !== 'loading')
   useEffect(() => {
-    if (shopsStatus !== 'loading') void reload()
-  }, [reload, shopsStatus])
+    if (settled) void reload()
+  }, [reload, settled])
 
   const value = useMemo(() => ({ latest, reload }), [latest, reload])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

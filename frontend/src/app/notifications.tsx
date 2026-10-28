@@ -1,12 +1,13 @@
 // Уведомления выводятся из данных, а не хранятся на сервере: пустые полки и смена ценников — из последнего
 // сравнения, режим — из /health. Прочитанность запоминаем на устройстве по стабильному id.
+// В живом режиме слова «демо» здесь нет: либо «живой режим включён», либо «новые обходы на паузе».
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { ModeReason } from '../api/types'
 import { useLatest } from './data'
 import { useMode } from './mode'
 
-export type NotificationKind = 'out_of_stock' | 'low_stock' | 'price_mismatch' | 'mode' | 'live'
+export type NotificationKind = 'out_of_stock' | 'low_stock' | 'price_mismatch' | 'mode' | 'live' | 'paused'
 
 export interface Notification {
   id: string
@@ -38,7 +39,7 @@ function loadRead(): Set<string> {
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const { latest } = useLatest()
-  const { mode, reason, budget, status, fetchedAt } = useMode()
+  const { mode, reason, budget, status, fetchedAt, liveReady } = useMode()
   const [read, setRead] = useState<Set<string>>(() => loadRead())
 
   useEffect(() => {
@@ -66,16 +67,19 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-    if (status === 'ready' && fetchedAt) {
+    if (status !== 'loading' && fetchedAt) {
       const day = fetchedAt.slice(0, 10)
+      const why = (reason ?? 'unknown') as ModeReason
       if (mode === 'demo') {
-        list.push({ id: `mode:demo:${reason ?? 'unknown'}:${day}`, kind: 'mode', at: fetchedAt, params: { reason: (reason ?? 'unknown') as ModeReason }, to: '/app/system', read: false })
-      } else {
+        list.push({ id: `mode:demo:${why}:${day}`, kind: 'mode', at: fetchedAt, params: { reason: why }, to: '/app/system', read: false })
+      } else if (liveReady) {
         list.push({ id: `mode:live:${day}`, kind: 'live', at: fetchedAt, params: { n: budget?.calls_left ?? 0 }, to: '/app/system', read: false })
+      } else {
+        list.push({ id: `mode:paused:${why}:${day}`, kind: 'paused', at: fetchedAt, params: { reason: why }, to: '/app/system', read: false })
       }
     }
     return list.map((n) => ({ ...n, read: read.has(n.id) }))
-  }, [latest, mode, reason, budget, status, fetchedAt, read])
+  }, [latest, mode, reason, budget, status, fetchedAt, liveReady, read])
 
   const markRead = useCallback((id: string) => setRead((prev) => new Set(prev).add(id)), [])
   const markAll = useCallback(() => setRead((prev) => new Set([...prev, ...items.map((n) => n.id)])), [items])

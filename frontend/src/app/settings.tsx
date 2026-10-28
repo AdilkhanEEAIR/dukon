@@ -1,4 +1,4 @@
-// Настройки устройства: язык, валюта, тема, анимации, демо-код и код устройства. Хранятся в localStorage,
+// Настройки устройства: язык, валюта, тема, анимации, источник данных, код доступа и код устройства. Хранятся в localStorage,
 // потому что аккаунтов нет — владелец магазина открыл ссылку и работает. Магазины живут на сервере
 // и привязаны к коду устройства.
 
@@ -10,6 +10,9 @@ export type Theme = 'light' | 'dark'
 /** auto — как просит система (Windows «Эффекты анимации», iOS «Уменьшение движения»), full — всё, calm — только проявления. */
 export type MotionPref = 'auto' | 'full' | 'calm'
 export type Motion = 'full' | 'calm'
+/** Какие данные показывать. auto — свои, пока у сервера есть кредиты на модели, иначе демо;
+ *  live — всегда свои (смотреть их можно и без кредитов, на паузе только новые обходы); demo — всегда демо-сеть. */
+export type DataMode = 'auto' | 'live' | 'demo'
 export { CURRENCIES, type Currency } from '../lib/currency'
 
 export interface Settings {
@@ -17,6 +20,7 @@ export interface Settings {
   currency: Currency
   theme: Theme
   motion: MotionPref
+  dataMode: DataMode
   demoKey: string
 }
 
@@ -38,10 +42,11 @@ export function systemReducesMotion(): boolean {
 
 function defaults(): Settings {
   // Первый запуск: английский (его читают судьи и гости), доллар, тема и анимации — как в системе.
-  return { locale: DEFAULT_LOCALE, currency: DEFAULT_CURRENCY, theme: systemTheme(), motion: 'auto', demoKey: '' }
+  return { locale: DEFAULT_LOCALE, currency: DEFAULT_CURRENCY, theme: systemTheme(), motion: 'auto', dataMode: 'auto', demoKey: '' }
 }
 
 const isMotionPref = (v: unknown): v is MotionPref => v === 'auto' || v === 'full' || v === 'calm'
+const isDataMode = (v: unknown): v is DataMode => v === 'auto' || v === 'live' || v === 'demo'
 
 function load(): Settings {
   const base = defaults()
@@ -55,6 +60,7 @@ function load(): Settings {
       currency: isCurrency(p.currency) ? p.currency : base.currency,
       theme: p.theme === 'light' || p.theme === 'dark' ? p.theme : base.theme,
       motion: isMotionPref(p.motion) ? p.motion : base.motion,
+      dataMode: isDataMode(p.dataMode) ? p.dataMode : base.dataMode,
       demoKey: typeof p.demoKey === 'string' ? p.demoKey : '',
     }
   } catch {
