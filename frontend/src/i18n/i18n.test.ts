@@ -30,6 +30,20 @@ describe('словари', () => {
     expect(walk(DICTS[locale]).filter((s) => !s.trim())).toEqual([])
   })
 
+  it('раздел словаря не похож на форму множественного числа (ключ other только в склонениях)', () => {
+    // Раздел с ключом other типы и тесты принимают за склонение — его ключи «пропадают» (так было с orders.other).
+    const PLURAL = new Set(['zero', 'one', 'two', 'few', 'many', 'other'])
+    const bad: string[] = []
+    const walk = (o: unknown, path: string) => {
+      if (!o || typeof o !== 'object' || Array.isArray(o)) return
+      const keys = Object.keys(o as Record<string, unknown>)
+      if (keys.includes('other') && keys.some((k) => !PLURAL.has(k))) bad.push(path)
+      for (const [k, v] of Object.entries(o as Record<string, unknown>)) walk(v, path ? `${path}.${k}` : k)
+    }
+    for (const locale of LOCALES) walk(DICTS[locale], locale)
+    expect(bad).toEqual([])
+  })
+
   it('плейсхолдеры в переводах совпадают с английскими', () => {
     const placeholders = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join(',')
     const flat = (o: unknown, prefix = ''): [string, string][] =>
