@@ -1,11 +1,25 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0e14" />
-    <meta name="description" content="Dukon — агент для полок магазина у дома. Снял полки — узнал, чего не хватает и сколько теряешь." />
+    <meta name="theme-color" content="#f1f3ee" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1411" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="Dukon — shelf-to-order agent for corner shops. Walk the shelves, see what empty spots cost, let the agent reorder." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geologica:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <title>Dukon</title>
+    <script>
+      // Тему ставим до первой отрисовки, чтобы не мигало белым при тёмной настройке.
+      try {
+        var s = JSON.parse(localStorage.getItem('dukon.settings') || '{}');
+        var t = s.theme === 'dark' || (s.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+        document.documentElement.style.colorScheme = t;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
