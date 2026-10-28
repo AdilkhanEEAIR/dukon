@@ -30,11 +30,13 @@ interface Props<V extends string> {
   testId?: string
   id?: string
   renderTrigger?: (selected: DropdownOption<V> | undefined) => ReactNode
+  /** Дополнительный класс кнопки: меню действий («Экспорт») выглядит как обычная кнопка, а не как поле. */
+  triggerClass?: string
 }
 
 const MENU_MAX = 320
 
-export function Dropdown<V extends string>({ value, options, onChange, label, visibleLabel, compact, block, align = 'start', icon, footer, testId, id, renderTrigger }: Props<V>) {
+export function Dropdown<V extends string>({ value, options, onChange, label, visibleLabel, compact, block, align = 'start', icon, footer, testId, id, renderTrigger, triggerClass }: Props<V>) {
   const uid = useId()
   const listId = `${uid}-list`
   const [open, setOpen] = useState(false)
@@ -139,7 +141,7 @@ export function Dropdown<V extends string>({ value, options, onChange, label, vi
         ref={triggerRef}
         id={id ?? `${uid}-trigger`}
         type="button"
-        className="dd__trigger"
+        className={`dd__trigger${triggerClass ? ` ${triggerClass}` : ''}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
