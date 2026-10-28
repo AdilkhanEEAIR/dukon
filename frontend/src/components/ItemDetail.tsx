@@ -8,6 +8,7 @@ import { Button } from './Button'
 import { ForecastChart, type Point } from './charts/Charts'
 import { CountUp } from './CountUp'
 import { Pill, STATUS_TONE } from './Pill'
+import { ProductIcon } from './ProductIcon'
 import { useToast } from './Toast'
 import { useI18n } from '../i18n'
 import { formatDays, formatMoney, formatNumber, formatPrice } from '../lib/format'
@@ -21,7 +22,7 @@ export function countHistory(walks: Walk[], sku: string): Point[] {
 }
 
 export function ItemDetail({ change, history }: { change: ItemChange; history?: Point[] }) {
-  const { t, locale } = useI18n()
+  const { t, rich, locale } = useI18n()
   const { settings } = useSettings()
   const toast = useToast()
   const [added, setAdded] = useState(false)
@@ -31,12 +32,15 @@ export function ItemDetail({ change, history }: { change: ItemChange; history?: 
 
   return (
     <div className="stack" style={{ gap: 20 }} data-testid="item-detail">
-      <div className="stack stack--tight">
-        <h2 className="h2">{change.name}</h2>
-        <span className="small row" style={{ gap: 6 }}>
-          <Tag size={14} />
-          {t('item.priceTag')}: {formatPrice(price, locale, settings.currency)}
-        </span>
+      <div className="row" style={{ gap: 14, alignItems: 'center' }}>
+        <ProductIcon name={change.name} size={60} empty={change.status === 'out_of_stock'} />
+        <div className="stack stack--tight" style={{ minWidth: 0 }}>
+          <h2 className="h2">{change.name}</h2>
+          <span className="small row" style={{ gap: 6 }}>
+            <Tag size={14} />
+            {t('item.priceTag')}: {formatPrice(price, locale, settings.currency)}
+          </span>
+        </div>
       </div>
 
       <div className="sheet sheet--soft sheet--pad stack" style={{ gap: 14 }}>
@@ -90,7 +94,7 @@ export function ItemDetail({ change, history }: { change: ItemChange; history?: 
             <span className="kv__v">{change.days_left === null ? '—' : change.days_left <= 0 ? t('charts.alreadyOut') : formatDays(change.days_left, t)}</span>
           </div>
           <div className="kv">
-            <span className="kv__k row" style={{ gap: 8 }}><Wallet size={15} className="c-3" />{t('item.loss')}</span>
+            <span className="kv__k row" style={{ gap: 8 }}><Wallet size={15} className="c-3" />{rich('item.loss')}</span>
             <span className={`kv__v${change.loss_per_day > 0 ? ' c-out' : ''}`}>{formatMoney(change.loss_per_day, locale, settings.currency)}</span>
           </div>
         </div>

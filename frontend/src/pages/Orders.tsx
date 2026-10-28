@@ -12,6 +12,7 @@ import { Pill } from '../components/Pill'
 import { EmptyState, ErrorState, ReportSkeleton } from '../components/States'
 import { useI18n } from '../i18n'
 import { formatMoney, formatPrice } from '../lib/format'
+import { ProductIcon } from '../components/ProductIcon'
 
 export function OrdersPage() {
   const { t } = useI18n()
@@ -64,7 +65,8 @@ function Drafts({ lines }: { lines: ItemChange[] }) {
             const price = l.price_after ?? l.price_before ?? 0
             const n = qty[l.sku] ?? 0
             return (
-              <div key={l.sku} className="row" style={{ padding: '12px 0', gap: 14 }} data-testid="order-line">
+              <div key={l.sku} className="row order-line" style={{ padding: '12px 0', gap: 14 }} data-testid="order-line">
+                <ProductIcon name={l.name} size={38} />
                 <div className="stack grow" style={{ gap: 2 }}>
                   <span style={{ fontWeight: 600 }} className="truncate">{l.name}</span>
                   <span className="small">
