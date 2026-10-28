@@ -1,12 +1,13 @@
 // Ценник потерь — главный объект главной: бумажная бирка висит на крючке и чуть качается при появлении.
 // Сумма в выбранной валюте, под ней — та же сумма в сомах «по ценникам» и прикидка на месяц.
 
+import type { ReactNode } from 'react'
 import { useSettings } from '../app/settings'
 import { useCountUp } from '../hooks/useCountUp'
 import { useI18n } from '../i18n'
 import { formatMoney, formatSom } from '../lib/format'
 
-export function LossTag({ valueKgs, label, unit, animate = true }: { valueKgs: number; label: string; unit: string; animate?: boolean }) {
+export function LossTag({ valueKgs, label, unit, animate = true }: { valueKgs: number; label: ReactNode; unit: string; animate?: boolean }) {
   const { t, locale } = useI18n()
   const { settings } = useSettings()
   const shown = useCountUp(valueKgs, animate ? 700 : 0)

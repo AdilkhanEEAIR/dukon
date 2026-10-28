@@ -89,7 +89,7 @@ export function ShelvesPage() {
 }
 
 function ReportBody({ report }: { report: Report }) {
-  const { t, locale } = useI18n()
+  const { t, rich, locale } = useI18n()
   const { settings } = useSettings()
   const { walk, diff, walks } = report
   const [filter, setFilter] = useState<Filter>('all')
@@ -138,7 +138,7 @@ function ReportBody({ report }: { report: Report }) {
               <Wallet size={15} />
             </span>
             <CountUp value={diff.loss_per_day} format={(v) => formatMoney(v, locale, settings.currency)} className="num-lg metric__money c-out" />
-            <span className="metric__label">{t('shelves.losing')}</span>
+            <span className="metric__label">{rich('shelves.losing')}</span>
           </div>
         </div>
 
@@ -159,8 +159,8 @@ function ReportBody({ report }: { report: Report }) {
             <EmptyState title={t('shelves.nothingHere')} text={t('shelves.nothingHereBody')} />
           ) : (
             <div className="rows">
-              {visible.map((c, i) => (
-                <ItemRow key={c.sku} change={c} index={i} onOpen={setOpen} />
+              {visible.map((c) => (
+                <ItemRow key={c.sku} change={c} onOpen={setOpen} />
               ))}
             </div>
           )}
@@ -172,8 +172,8 @@ function ReportBody({ report }: { report: Report }) {
               {t('shelves.unchanged')} · {ok.length}
             </summary>
             <div className="rows" style={{ paddingBottom: 6 }}>
-              {ok.map((c, i) => (
-                <ItemRow key={c.sku} change={c} index={i} onOpen={setOpen} />
+              {ok.map((c) => (
+                <ItemRow key={c.sku} change={c} onOpen={setOpen} />
               ))}
             </div>
           </details>

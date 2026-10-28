@@ -6,6 +6,8 @@ import { useSettings } from '../../app/settings'
 export interface ChartColors {
   accent: string
   muted: string
+  loss: string
+  lossHover: string
   ink: string
   ink2: string
   ink3: string
@@ -25,6 +27,8 @@ export function readChartColors(): ChartColors {
   return {
     accent: cssVar('--chart-accent', '#0e5b3f'),
     muted: cssVar('--chart-muted', '#c3cabd'),
+    loss: cssVar('--chart-loss', '#d03b3b'),
+    lossHover: cssVar('--chart-loss-hover', '#b52f2f'),
     ink: cssVar('--ink', '#101512'),
     ink2: cssVar('--ink-2', '#4b544d'),
     ink3: cssVar('--ink-3', '#7b847d'),

@@ -1,7 +1,7 @@
 // Три графика, и каждый отвечает на один вопрос владельца:
 //  • StockChart     — «что продалось с прошлого обхода» (было → стало по товарам, тень + акцент);
 //  • ForecastChart  — «когда закончится» (посчитанные точки + пунктир прогноза до нуля);
-//  • BranchesChart  — «какой филиал теряет больше» (одна серия, по убыванию).
+//  • BranchesChart  — «какой филиал теряет больше» (одна серия, по убыванию, красным: это деньги, которые уходят).
 // Правила из dataviz: одна ось, тонкие столбцы со скруглённым концом, легенда только при 2+ сериях,
 // подписи текстом темы, у каждого графика есть табличный вид.
 
@@ -32,7 +32,7 @@ function labelWidth(): number {
   return typeof window !== 'undefined' && window.innerWidth < 600 ? 92 : 150
 }
 
-export function ChartCard({ title, children, table }: { title: string; children: ReactNode; table: ReactNode }) {
+export function ChartCard({ title, children, table }: { title: ReactNode; children: ReactNode; table: ReactNode }) {
   const { t } = useI18n()
   return (
     <section className="sheet sheet--pad chart-card stack" style={{ gap: 8 }}>
@@ -228,7 +228,7 @@ export function ForecastChart({ history, change, caption }: { history: Point[]; 
 
 // ---- филиалы
 export function BranchesChart({ rows, format }: { rows: { id: string; name: string; value: number }[]; format: (v: number) => string }) {
-  const { t } = useI18n()
+  const { t, rich } = useI18n()
   const c = useChartColors()
   const sorted = useMemo(() => [...rows].sort((a, b) => a.value - b.value), [rows])
 
@@ -238,7 +238,7 @@ export function BranchesChart({ rows, format }: { rows: { id: string; name: stri
       animationEasing: EASE,
       animationDelay: (i: number) => i * 60,
       aria: { enabled: true },
-      grid: { left: 8, right: 72, top: 8, bottom: 8, containLabel: true },
+      grid: { left: 8, right: 96, top: 8, bottom: 8, containLabel: true },
       tooltip: { ...tooltipBase(c), trigger: 'item', valueFormatter: (v: number) => format(v) },
       // У каждого столбца своя подпись на конце — ось с делениями тут только шумит.
       xAxis: { type: 'value', splitLine: { show: false }, axisLabel: { show: false } },
@@ -247,11 +247,24 @@ export function BranchesChart({ rows, format }: { rows: { id: string; name: stri
         {
           name: t('branches.chartTitle'),
           type: 'bar',
-          data: sorted.map((r) => r.value),
+          // Ноль — не потеря: подпись серая, чтобы красным горело только то, что реально уходит.
+          data: sorted.map((r) => (r.value > 0 ? r.value : { value: r.value, label: { color: c.ink3, fontWeight: 600 } })),
           barWidth: 16,
-          itemStyle: { color: c.accent, borderRadius: [0, 4, 4, 0] },
-          label: { show: true, position: 'right', color: c.ink, fontFamily: c.font, fontWeight: 600, fontSize: 12, formatter: (p: { value: number }) => format(p.value) },
-          emphasis: { itemStyle: { color: c.ink } },
+          // Потери — статусный красный, а не зелёный акцент: зелёный читается как «в плюсе».
+          // Подложка-дорожка показывает «сколько могло бы быть» и делает короткие столбцы заметнее.
+          itemStyle: { color: c.loss, borderRadius: [0, 6, 6, 0] },
+          showBackground: true,
+          backgroundStyle: { color: c.line, opacity: 0.45, borderRadius: [0, 6, 6, 0] },
+          label: {
+            show: true,
+            position: 'right',
+            color: c.out,
+            fontFamily: c.font,
+            fontWeight: 800,
+            fontSize: 13,
+            formatter: (p: { value: number }) => format(p.value),
+          },
+          emphasis: { itemStyle: { color: c.lossHover } },
         },
       ],
     }),
@@ -260,7 +273,7 @@ export function BranchesChart({ rows, format }: { rows: { id: string; name: stri
 
   return (
     <ChartCard
-      title={t('branches.chartTitle')}
+      title={rich('branches.chartTitle')}
       table={
         <table className="data-table">
           <tbody>

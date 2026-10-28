@@ -52,7 +52,7 @@ export function HomePage() {
 }
 
 function HomeContent({ data }: { data: Latest }) {
-  const { t, locale } = useI18n()
+  const { t, rich, locale } = useI18n()
   const { shops } = useShops()
   const { walk, diff, walks } = data
   const attention = diff.changes.filter((c) => c.status !== 'ok' && c.status !== 'new_item').slice(0, 6)
@@ -69,7 +69,7 @@ function HomeContent({ data }: { data: Latest }) {
           <ModePill compact />
         </div>
 
-        <LossTag valueKgs={diff.loss_per_day} label={t('home.lossTitle')} unit={`${t('common.perDay')} · ${t('home.lossBody', { out: diff.out_of_stock, slots: diff.empty_slots })}`} />
+        <LossTag valueKgs={diff.loss_per_day} label={rich('home.lossTitle')} unit={`${t('common.perDay')} · ${t('home.lossBody', { out: diff.out_of_stock, slots: diff.empty_slots })}`} />
 
         <div className="metric-row">
           <div className="metric">
@@ -123,8 +123,8 @@ function HomeContent({ data }: { data: Latest }) {
             <EmptyState title={t('home.allGood')} text={t('home.allGoodBody')} />
           ) : (
             <div className="rows">
-              {attention.map((c, i) => (
-                <ItemRow key={c.sku} change={c} index={i} />
+              {attention.map((c) => (
+                <ItemRow key={c.sku} change={c} />
               ))}
             </div>
           )}

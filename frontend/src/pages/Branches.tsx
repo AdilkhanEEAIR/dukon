@@ -59,7 +59,7 @@ export function BranchesPage() {
 }
 
 function BranchesBody({ overview }: { overview: Overview }) {
-  const { t, locale } = useI18n()
+  const { t, rich, locale } = useI18n()
   const { settings } = useSettings()
   const { current, select } = useShops()
   const navigate = useNavigate()
@@ -75,12 +75,12 @@ function BranchesBody({ overview }: { overview: Overview }) {
       <div className="two-col" style={{ alignItems: 'start' }}>
         <div className="stack" style={{ gap: 16 }}>
           <div className="sheet sheet--pad stack lift" style={{ gap: 6 }}>
-            <span className="small">{t('branches.total')}</span>
+            <span className="loss-label" data-testid="branches-total-label">{rich('branches.total')}</span>
             <CountUp value={total} format={fmt} className="num-xl c-out" testId="branches-total" />
             <span className="small">
               {t('common.perDay')} · ≈ {fmt(total * 30)} {t('common.perMonth')}
             </span>
-            {worst && worst.loss_per_day > 0 && <span className="body-2">{t('branches.worst', { name: worst.shop.name })}</span>}
+            {worst && worst.loss_per_day > 0 && <span className="body-2" data-testid="branches-worst">{rich('branches.worst', { name: worst.shop.name })}</span>}
           </div>
           <BranchesChart rows={rows.map((r) => ({ id: r.shop.id, name: r.shop.name, value: r.loss_per_day }))} format={fmt} />
         </div>
@@ -106,7 +106,7 @@ function BranchesBody({ overview }: { overview: Overview }) {
                     {r.walks > 0 ? (
                       <span className="branch-row__stats">
                         <span>
-                          <b>{fmt(r.loss_per_day)}</b> {t('common.perDay')}
+                          <b className={r.loss_per_day > 0 ? 'c-out' : undefined}>{fmt(r.loss_per_day)}</b> {t('common.perDay')}
                         </span>
                         <span>
                           <b>{r.out_of_stock}</b> {t('branches.out')}
