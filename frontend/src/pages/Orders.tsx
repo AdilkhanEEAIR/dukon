@@ -7,7 +7,7 @@ import type { ItemChange } from '../api/types'
 import { useLatest } from '../app/data'
 import { Button } from '../components/Button'
 import { PageActions } from '../components/Nav'
-import { Pill } from '../components/Pill'
+import { Pill, STATUS_TONE } from '../components/Pill'
 import { EmptyState, ErrorState, ReportSkeleton } from '../components/States'
 import { useI18n } from '../i18n'
 import { ProductIcon } from '../components/ProductIcon'
@@ -22,8 +22,8 @@ export function OrdersPage() {
     <div className="page stagger" style={{ maxWidth: 760 }} data-testid="orders">
       <header className="page-head">
         <div className="page-head__text">
-          <span className="small">{t('orders.subtitle')}</span>
           <h1 className="h1">{t('orders.title')}</h1>
+          <p className="page-head__sub">{t('orders.subtitle')}</p>
         </div>
         <PageActions />
       </header>
@@ -72,8 +72,9 @@ function Drafts({ lines }: { lines: ItemChange[] }) {
                 <ProductIcon name={l.name} size={38} />
                 <div className="stack grow" style={{ gap: 2 }}>
                   <span style={{ fontWeight: 600 }} className="truncate">{name}</span>
-                  <span className="small">
-                    <Money kgs={price} kind="price" noAlt /> · {t(`status.${l.status}`)}
+                  <span className="small row" style={{ gap: 10 }}>
+                    <Money kgs={price} kind="price" noAlt />
+                    <span className={`c-${STATUS_TONE[l.status]}`}>{t(`status.${l.status}`)}</span>
                   </span>
                 </div>
                 <div className="stepper" aria-label={name}>

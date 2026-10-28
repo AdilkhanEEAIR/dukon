@@ -19,7 +19,7 @@ import { EmptyState, ErrorState, ReportSkeleton } from '../components/States'
 import { useAsync } from '../hooks/useAsync'
 import { prefersReducedMotion } from '../hooks/useCountUp'
 import { useI18n } from '../i18n'
-import { formatHours, formatShortDate, formatTime } from '../lib/format'
+import { formatHours, formatWhen } from '../lib/format'
 import { Money } from '../components/Money'
 import { WalkCalendar } from '../components/WalkCalendar'
 
@@ -71,7 +71,6 @@ export function ShelvesPage() {
     <div className="page stagger" data-testid="shelves">
       <header className="page-head">
         <div className="page-head__text">
-          <span className="small">{t('shelves.title')}</span>
           <h1 className="h1">{t('shelves.report')}</h1>
         </div>
         <div className="row" style={{ gap: 8 }}>
@@ -177,7 +176,7 @@ function ReportBody({ report }: { report: Report }) {
         {ok.length > 0 && filter === 'all' && (
           <details className="sheet" style={{ padding: '0 16px' }}>
             <summary className="small" style={{ padding: '14px 0', cursor: 'pointer', listStyle: 'none', fontWeight: 600 }}>
-              {t('shelves.unchanged')} · {ok.length}
+              {t('shelves.unchanged')} <span className="count-chip">{ok.length}</span>
             </summary>
             <div className="rows" style={{ paddingBottom: 6 }}>
               {ok.map((c) => (
@@ -191,7 +190,7 @@ function ReportBody({ report }: { report: Report }) {
       <div className="stack" style={{ gap: 14 }}>
         <div className="sheet sheet--pad stack lift" style={{ gap: 12 }}>
           <span className="h3">
-            {formatShortDate(walk.created_at, locale)} · {formatTime(walk.created_at, locale)}
+            {formatWhen(walk.created_at, locale)}
           </span>
           <div className="rows">
             <div className="kv"><span className="kv__k">{t('common.photos', { n: walk.photos.length })}</span><span className="kv__v">{walk.photos.reduce((a, p) => a + p.model_calls, 0) > 0 ? `${walk.photos.reduce((a, p) => a + p.model_calls, 0)} × AI` : t('mode.demo')}</span></div>

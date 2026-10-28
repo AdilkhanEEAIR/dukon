@@ -15,7 +15,7 @@ import { Pill } from '../components/Pill'
 import { LossTag } from '../components/PriceTag'
 import { EmptyState, ErrorState, ReportSkeleton } from '../components/States'
 import { useI18n } from '../i18n'
-import { capitalize, formatDate, formatShortDate, formatTime } from '../lib/format'
+import { capitalize, formatDate, formatWhen } from '../lib/format'
 
 export function HomePage() {
   const { t, locale } = useI18n()
@@ -27,13 +27,13 @@ export function HomePage() {
     <div className="page stagger" data-testid="home">
       <header className="page-head">
         <div className="page-head__text">
-          <span className="small">{capitalize(formatDate(today, locale))}</span>
           <div className="hide-desktop">
             <ShopSwitcher variant="title" />
           </div>
           <h1 className="h1 hide-mobile" data-testid="shop-name">
             {current?.name ?? t('common.appName')}
           </h1>
+          <p className="page-head__sub">{capitalize(formatDate(today, locale))}</p>
         </div>
         <PageActions />
       </header>
@@ -63,13 +63,13 @@ function HomeContent({ data }: { data: Latest }) {
         <div className="row row--wrap" style={{ gap: 8 }}>
           <Pill tone={walk.source === 'demo' ? 'neutral' : 'ok'}>{walk.source === 'demo' ? t('home.demoBadge') : t('home.liveBadge')}</Pill>
           <span className="small">
-            {capitalize(formatShortDate(walk.created_at, locale))} · {formatTime(walk.created_at, locale)}
+            {formatWhen(walk.created_at, locale)}
           </span>
           <span className="grow" />
           <ModePill compact />
         </div>
 
-        <LossTag valueKgs={diff.loss_per_day} label={rich('home.lossTitle')} unit={`${t('common.perDay')} · ${t('home.lossBody', { out: diff.out_of_stock, slots: diff.empty_slots })}`} />
+        <LossTag valueKgs={diff.loss_per_day} label={rich('home.lossTitle')} unit={t('common.perDay')} note={t('home.lossBody', { out: diff.out_of_stock, slots: diff.empty_slots })} />
 
         <div className="metric-row">
           <div className="metric">
@@ -147,7 +147,7 @@ function HomeContent({ data }: { data: Latest }) {
           </span>
           <span className="stack grow" style={{ gap: 1 }}>
             <span style={{ fontWeight: 700 }}>{t('branches.title')}</span>
-            <span className="small">{t('shops.count', { n: shops.length })} · {t('branches.subtitle')}</span>
+            <span className="small">{t('shops.count', { n: shops.length })}</span>
           </span>
           <ChevronRight size={18} className="c-3" />
         </Link>
@@ -168,10 +168,10 @@ function HomeContent({ data }: { data: Latest }) {
                     <Link key={w.id} to={`/app/shelves/${w.id}`} className="walk-row nudge" data-testid="walk-row">
                       <span className="stack" style={{ gap: 2 }}>
                         <span style={{ fontWeight: 600 }}>
-                          {capitalize(formatShortDate(w.created_at, locale))} · {formatTime(w.created_at, locale)}
+                          {formatWhen(w.created_at, locale)}
                         </span>
                         <span className="walk-row__meta">
-                          {t('common.photos', { n: w.photos.length })} · {t('common.items', { n: items })}
+                          {t('common.photos', { n: w.photos.length })}, {t('common.items', { n: items })}
                         </span>
                       </span>
                       <ChevronRight size={18} className="c-3" />

@@ -16,8 +16,8 @@ export function SystemPage() {
     <div className="page stagger" style={{ maxWidth: 720 }} data-testid="system">
       <header className="page-head">
         <div className="page-head__text">
-          <span className="small">{t('system.subtitle')}</span>
           <h1 className="h1">{t('system.title')}</h1>
+          <p className="page-head__sub">{t('system.subtitle')}</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
           <Button size="sm" variant="secondary" onClick={() => void refresh()} icon={<RefreshCw size={14} />}>

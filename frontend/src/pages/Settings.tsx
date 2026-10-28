@@ -1,11 +1,11 @@
 // Настройки: магазины и филиалы (на сервере), язык, валюта, тема, демо-код, код устройства, сброс.
 // Удаление магазина — в два нажатия вместо системного confirm: диалог браузера блокирует страницу.
 
-import { Check, Copy, Feather, Info, Link2, MapPin, MonitorSmartphone, Pencil, Plus, Sparkles, Store, Trash2, X } from 'lucide-react'
+import { Check, Copy, Feather, Info, Link2, MapPin, MapPinned, MonitorSmartphone, Pencil, Plus, Sparkles, Store, Trash2, X } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { API_BASE, errorCode } from '../api/client'
-import type { Shop } from '../api/types'
+import type { GeoPoint, Shop } from '../api/types'
 import { CURRENCIES, DEVICE_CODE, useSettings, type Currency, type MotionPref, type Theme } from '../app/settings'
 import { useShops } from '../app/shops'
 import { Button, IconButton } from '../components/Button'
@@ -16,6 +16,8 @@ import { MoonGlyph, SunGlyph } from '../components/ThemeIcon'
 import { useToast } from '../components/Toast'
 import { DICTS, LOCALES, useI18n, type Locale } from '../i18n'
 import { CURRENCY_LABEL } from '../lib/currency'
+import { LocationField } from '../components/map/LocationField'
+import { hasPoint } from '../lib/geo'
 
 export function SettingsPage() {
   const { t, locale, setLocale } = useI18n()
@@ -56,7 +58,6 @@ export function SettingsPage() {
     <div className="page stagger" style={{ maxWidth: 680 }} data-testid="settings">
       <header className="page-head">
         <div className="page-head__text">
-          <span className="small">{t('common.appName')}</span>
           <h1 className="h1">{t('settings.title')}</h1>
         </div>
         <PageActions />
@@ -202,6 +203,7 @@ function ShopsSection() {
   const { shops, current, select, create } = useShops()
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
+  const [point, setPoint] = useState<GeoPoint | null>(null)
   const [busy, setBusy] = useState(false)
 
   const add = async (e: FormEvent) => {
@@ -209,9 +211,10 @@ function ShopsSection() {
     if (!name.trim()) return
     setBusy(true)
     try {
-      await create(name.trim(), address.trim())
+      await create(name.trim(), address.trim(), point)
       setName('')
       setAddress('')
+      setPoint(null)
       toast('success', t('shops.added'))
     } catch (err) {
       toast('danger', t(`errors.${errorCode(err).code}.title`), t(`errors.${errorCode(err).code}.hint`))
@@ -237,6 +240,7 @@ function ShopsSection() {
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('onboarding.shopPlaceholder')} aria-label={t('onboarding.shopName')} maxLength={60} data-testid="new-shop-name" />
           <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder={t('onboarding.addressPlaceholder')} aria-label={t('onboarding.address')} maxLength={120} />
         </div>
+        <LocationField point={point} address={address} onPoint={setPoint} onAddress={setAddress} />
         <div>
           <Button type="submit" variant="secondary" icon={<Plus size={16} />} loading={busy} disabled={!name.trim()} data-testid="add-shop">
             {t('shops.add')}
@@ -254,6 +258,7 @@ function ShopRow({ shop, isCurrent, onSelect, canDelete }: { shop: Shop; isCurre
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(shop.name)
   const [address, setAddress] = useState(shop.address)
+  const [point, setPoint] = useState<GeoPoint | null>(hasPoint(shop) ? { lat: shop.lat, lng: shop.lng } : null)
   const [confirming, setConfirming] = useState(false)
 
   // Второе нажатие на «Удалить» засчитывается только в течение 3 секунд.
@@ -268,7 +273,7 @@ function ShopRow({ shop, isCurrent, onSelect, canDelete }: { shop: Shop; isCurre
   const save = async (e: FormEvent) => {
     e.preventDefault()
     try {
-      await update(shop.id, { name: name.trim(), address: address.trim() })
+      await update(shop.id, { name: name.trim(), address: address.trim(), lat: point?.lat ?? null, lng: point?.lng ?? null })
       setEditing(false)
       toast('success', t('common.saved'))
     } catch (err) {
@@ -298,6 +303,7 @@ function ShopRow({ shop, isCurrent, onSelect, canDelete }: { shop: Shop; isCurre
       <form className="stack" style={{ gap: 8, padding: '12px 0' }} onSubmit={save} data-testid="shop-edit">
         <Input value={name} onChange={(e) => setName(e.target.value)} aria-label={t('onboarding.shopName')} maxLength={60} />
         <Input value={address} onChange={(e) => setAddress(e.target.value)} aria-label={t('onboarding.address')} maxLength={120} />
+        <LocationField point={point} address={address} onPoint={setPoint} onAddress={setAddress} defaultOpen={!!point} />
         <div className="row" style={{ gap: 8 }}>
           <Button type="submit" size="sm" icon={<Check size={14} />} disabled={!name.trim()}>
             {t('common.save')}
@@ -323,7 +329,7 @@ function ShopRow({ shop, isCurrent, onSelect, canDelete }: { shop: Shop; isCurre
           {isCurrent && <Check size={15} className="c-accent" aria-label="current" />}
         </span>
         <span className="small row" style={{ gap: 4 }}>
-          <MapPin size={12} />
+          {hasPoint(shop) ? <MapPinned size={12} className="c-accent" aria-label={t('map.location')} /> : <MapPin size={12} />}
           <span className="truncate">{shop.address || t('shops.noAddress')}</span>
         </span>
       </div>

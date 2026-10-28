@@ -84,15 +84,15 @@ export function ScanPage() {
     <div className="page stagger" style={{ maxWidth: 640 }} data-testid="scan">
       <header className="page-head">
         <div className="page-head__text">
-          <span className="small row" style={{ gap: 6 }}>
-            {t('scan.subtitle')}
-            {current && (
-              <>
-                · <MapPin size={12} /> {current.name}
-              </>
-            )}
-          </span>
           <h1 className="h1">{t('scan.title')}</h1>
+          <p className="page-head__sub row row--wrap" style={{ gap: '4px 12px' }}>
+            <span>{t('scan.subtitle')}</span>
+            {current && (
+              <span className="row" style={{ gap: 4 }}>
+                <MapPin size={13} /> {current.name}
+              </span>
+            )}
+          </p>
         </div>
         <div className="row" style={{ gap: 8 }}>
           <IconButton label={t('common.close')} outline onClick={() => navigate('/app')}>

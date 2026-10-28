@@ -8,7 +8,7 @@ import { PageActions } from '../components/Nav'
 import { Pill } from '../components/Pill'
 import { EmptyState } from '../components/States'
 import { useI18n } from '../i18n'
-import { formatShortDate, formatTime } from '../lib/format'
+import { formatWhen } from '../lib/format'
 
 const ICON = {
   out_of_stock: { Icon: PackageSearch, cls: 'notif__icon--out' },
@@ -39,8 +39,8 @@ export function NotificationsPage() {
     <div className="page stagger" style={{ maxWidth: 720 }} data-testid="notifications">
       <header className="page-head">
         <div className="page-head__text">
-          <span className="small">{unread ? t('notifications.unread', { n: unread }) : t('common.appName')}</span>
           <h1 className="h1">{t('notifications.title')}</h1>
+          {unread > 0 && <p className="page-head__sub">{t('notifications.unread', { n: unread })}</p>}
         </div>
         <PageActions />
       </header>
@@ -67,7 +67,7 @@ export function NotificationsPage() {
                   <span className="stack" style={{ gap: 3 }}>
                     <span style={{ fontWeight: n.read ? 500 : 700 }}>{text(n)}</span>
                     <span className="small">
-                      {formatShortDate(n.at, locale)} · {formatTime(n.at, locale)}
+                      {formatWhen(n.at, locale)}
                     </span>
                   </span>
                   <ChevronRight size={16} className="c-3" style={{ marginTop: 10 }} />

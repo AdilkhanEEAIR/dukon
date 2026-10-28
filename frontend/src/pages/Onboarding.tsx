@@ -15,6 +15,8 @@ import { DICTS, LOCALES, useI18n, type Locale } from '../i18n'
 import { CURRENCY_LABEL } from '../lib/currency'
 import { LogoMark } from '../components/Logo'
 import { MoonGlyph, SunGlyph } from '../components/ThemeIcon'
+import { LocationField } from '../components/map/LocationField'
+import type { GeoPoint } from '../api/types'
 
 export function OnboardingPage() {
   const { t, locale, setLocale } = useI18n()
@@ -23,6 +25,7 @@ export function OnboardingPage() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
+  const [point, setPoint] = useState<GeoPoint | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState<unknown>(null)
@@ -36,7 +39,7 @@ export function OnboardingPage() {
     setSaving(true)
     setFailure(null)
     try {
-      await create(name.trim(), address.trim())
+      await create(name.trim(), address.trim(), point)
       navigate('/app', { replace: true })
     } catch (err) {
       setFailure(err)
@@ -77,6 +80,7 @@ export function OnboardingPage() {
             <Input id="address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder={t('onboarding.addressPlaceholder')} maxLength={120} />
           </div>
         </Field>
+        <LocationField point={point} address={address} onPoint={setPoint} onAddress={setAddress} />
 
         <div className="two-col two-col--even" style={{ gap: 14 }}>
           <Dropdown<Locale>

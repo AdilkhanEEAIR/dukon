@@ -14,8 +14,8 @@ export function AgentPage() {
     <div className="page stagger" style={{ maxWidth: 760 }} data-testid="agent">
       <header className="page-head">
         <div className="page-head__text">
-          <span className="small">{t('agent.subtitle')}</span>
           <h1 className="h1">{t('agent.title')}</h1>
+          <p className="page-head__sub">{t('agent.subtitle')}</p>
         </div>
         <PageActions />
       </header>
