@@ -1,9 +1,8 @@
 // Карточка товара: было → стало, факты, предложение агента. Используется и в шторке, и на странице.
 
 import { Gauge, Hourglass, Package, Tag, Wallet } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ItemChange, Walk } from '../api/types'
-import { useSettings } from '../app/settings'
 import { Button } from './Button'
 import { ForecastChart, type Point } from './charts/Charts'
 import { CountUp } from './CountUp'
@@ -11,7 +10,11 @@ import { Pill, STATUS_TONE } from './Pill'
 import { ProductIcon } from './ProductIcon'
 import { useToast } from './Toast'
 import { useI18n } from '../i18n'
-import { formatDays, formatMoney, formatNumber, formatPrice } from '../lib/format'
+import { formatDays, formatNumber } from '../lib/format'
+import { Money } from './Money'
+import { reasonOf } from '../lib/reason'
+import { flyToOrders } from '../lib/fly'
+import { useSettings } from '../app/settings'
 
 /** Количество товара в каждом обходе — точки графика «остаток и прогноз». */
 export function countHistory(walks: Walk[], sku: string): Point[] {
@@ -22,10 +25,11 @@ export function countHistory(walks: Walk[], sku: string): Point[] {
 }
 
 export function ItemDetail({ change, history }: { change: ItemChange; history?: Point[] }) {
-  const { t, rich, locale } = useI18n()
+  const { t, rich, locale, product } = useI18n()
   const { settings } = useSettings()
   const toast = useToast()
   const [added, setAdded] = useState(false)
+  const iconBox = useRef<HTMLSpanElement>(null)
   const tone = STATUS_TONE[change.status]
   const max = Math.max(change.before ?? 0, change.after, 1)
   const price = change.price_after ?? change.price_before
@@ -33,12 +37,14 @@ export function ItemDetail({ change, history }: { change: ItemChange; history?: 
   return (
     <div className="stack" style={{ gap: 20 }} data-testid="item-detail">
       <div className="row" style={{ gap: 14, alignItems: 'center' }}>
-        <ProductIcon name={change.name} size={60} empty={change.status === 'out_of_stock'} />
+        <span ref={iconBox} className="item-detail__icon">
+          <ProductIcon name={change.name} size={60} empty={change.status === 'out_of_stock'} />
+        </span>
         <div className="stack stack--tight" style={{ minWidth: 0 }}>
-          <h2 className="h2">{change.name}</h2>
+          <h2 className="h2">{product(change.name)}</h2>
           <span className="small row" style={{ gap: 6 }}>
             <Tag size={14} />
-            {t('item.priceTag')}: {formatPrice(price, locale, settings.currency)}
+            {t('item.priceTag')}: <Money kgs={price} kind="price" />
           </span>
         </div>
       </div>
@@ -59,7 +65,7 @@ export function ItemDetail({ change, history }: { change: ItemChange; history?: 
         </div>
         <div className="row row--wrap">
           <Pill tone={tone}>{t(`status.${change.status}`)}</Pill>
-          <span className="small">{change.status === 'out_of_stock' && change.before !== null ? t('item.wasBefore', { n: change.before }) : change.reason}</span>
+          <span className="small">{reasonOf(change, t, locale, settings.currency)}</span>
         </div>
       </div>
 
@@ -95,7 +101,7 @@ export function ItemDetail({ change, history }: { change: ItemChange; history?: 
           </div>
           <div className="kv">
             <span className="kv__k row" style={{ gap: 8 }}><Wallet size={15} className="c-3" />{rich('item.loss')}</span>
-            <span className={`kv__v${change.loss_per_day > 0 ? ' c-out' : ''}`}>{formatMoney(change.loss_per_day, locale, settings.currency)}</span>
+            <Money kgs={change.loss_per_day} className={`kv__v${change.loss_per_day > 0 ? ' c-out' : ''}`} />
           </div>
         </div>
       </div>
@@ -108,9 +114,11 @@ export function ItemDetail({ change, history }: { change: ItemChange; history?: 
           <Button
             variant={added ? 'secondary' : 'primary'}
             icon={<Package size={18} />}
-            onClick={() => {
+            onClick={(e) => {
               setAdded(true)
-              toast('success', t('item.addedToDraft'), change.name)
+              // Иконка товара улетает к «Заказам» — видно, куда ушло добавленное.
+              flyToOrders(iconBox.current?.querySelector('.pi') ?? null, e.currentTarget)
+              toast('success', t('item.addedToDraft'), product(change.name))
             }}
             disabled={added}
             data-testid="to-draft"

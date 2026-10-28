@@ -3,6 +3,7 @@
 
 import { motion } from 'motion/react'
 import { useId } from 'react'
+import { Ticker } from './Ticker'
 
 export interface Segment<K extends string> {
   key: K
@@ -21,7 +22,7 @@ export function Segmented<K extends string>({ value, onChange, items, label }: {
             {active && <motion.span layoutId={`seg-${group}`} className="seg__thumb" transition={{ type: 'spring', duration: 0.32, bounce: 0.1 }} />}
             <span style={{ position: 'relative', zIndex: 1 }}>
               {it.label}
-              {it.count ? <span className="seg__count">{it.count}</span> : null}
+              {it.count ? <Ticker value={it.count} className="seg__count" /> : null}
             </span>
           </button>
         )

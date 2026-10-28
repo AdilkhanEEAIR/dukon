@@ -2,6 +2,7 @@
 // страницы показывают причину, а не «что-то пошло не так».
 
 import type { BranchSummary, Health, Shop, Walk, WalkDiff, WalkSource } from './types'
+import { beginActivity, endActivity } from '../lib/activity'
 
 export const API_BASE: string = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? 'http://localhost:8000'
 
@@ -47,6 +48,17 @@ export const ERROR_CODES: ErrorCode[] = [
 const KNOWN_CODES = new Set<string>(ERROR_CODES)
 
 async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 90_000): Promise<T> {
+  // Фоновую проверку /health в полосе загрузки не показываем: она идёт по таймеру и только мелькала бы.
+  const tracked = !path.startsWith('/health')
+  if (tracked) beginActivity()
+  try {
+    return await send<T>(path, init, timeoutMs)
+  } finally {
+    if (tracked) endActivity()
+  }
+}
+
+async function send<T>(path: string, init: RequestInit, timeoutMs: number): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   let res: Response
