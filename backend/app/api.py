@@ -272,6 +272,9 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
             fresh_calls += 1
         if fresh_calls:
             storage.increment(today_key(), fresh_calls)
+            # Модель ответила — значит, кредиты и ключ снова в порядке. Без этого одна старая ошибка billing
+            # навсегда держала бы /health в демо, даже после пополнения счёта.
+            storage.set_text("last_provider_error", None)
         storage.save_walk(walk)
         return walk
 
