@@ -63,7 +63,11 @@ a.rail__mode:focus-visible { box-shadow: var(--focus); }
 
 /* ================= карта ================= */
 .geo-map { position: relative; overflow: hidden; padding: 0; isolation: isolate; }
-.geo-map__canvas { position: absolute; inset: 0; }
+/* Стили MapLibre грузятся вместе с картой, то есть позже наших, и вешают на контейнер .maplibregl-map
+   с position: relative. С той же силой селектора они побеждали — контейнер схлопывался в высоту 0,
+   карта рисовалась, но её не было видно. Поэтому селектор сильнее и размеры заданы явно. */
+.geo-map > .geo-map__canvas,
+.geo-map > .geo-map__canvas.maplibregl-map { position: absolute; inset: 0; width: 100%; height: 100%; }
 .geo-map__veil {
   position: absolute;
   inset: 0;

@@ -13,6 +13,25 @@ export const MAP_STYLE = {
   dark: 'https://tiles.openfreemap.org/styles/dark',
 } as const
 
+/** Запасная подложка — растровые плитки CARTO в тех же тонах. Нужна, если векторный стиль не загрузился:
+ *  OpenFreeMap бывает недоступен из отдельных сетей, а пустая серая рамка хуже простой картинки. */
+export function rasterStyle(theme: 'light' | 'dark') {
+  const kind = theme === 'dark' ? 'dark_all' : 'light_all'
+  return {
+    version: 8 as const,
+    sources: {
+      carto: {
+        type: 'raster' as const,
+        tiles: ['a', 'b', 'c', 'd'].map((s) => `https://${s}.basemaps.cartocdn.com/${kind}/{z}/{x}/{y}@2x.png`),
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>',
+      },
+    },
+    layers: [{ id: 'carto', type: 'raster' as const, source: 'carto' }],
+  }
+}
+
 /** Бишкек: центр карты, пока у магазина нет точки. */
 export const DEFAULT_CENTER: GeoPoint = { lat: 42.8746, lng: 74.6122 }
 

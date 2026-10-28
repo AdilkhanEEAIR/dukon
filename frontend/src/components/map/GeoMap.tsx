@@ -1,5 +1,6 @@
 // Карты: филиалы с потерями на одной карте и выбор точки магазина (геолокация, булавка, поиск адреса).
-// Подложка — векторная карта OpenFreeMap (светлая и тёмная под тему), библиотека MapLibre грузится лениво.
+// Подложка — векторная карта OpenFreeMap (светлая и тёмная под тему), запасная — растровая CARTO.
+// Библиотека MapLibre грузится лениво.
 // Булавки — свои HTML-элементы: бирка с названием и потерями в день, как ценник на полке.
 
 import { Crosshair, LocateFixed, MapPinOff, Search } from 'lucide-react'
@@ -7,7 +8,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import type { GeoPoint } from '../../api/types'
 import { useSettings } from '../../app/settings'
 import { useI18n } from '../../i18n'
-import { DEFAULT_CENTER, MAP_STYLE, currentPosition, geocode, reverseGeocode, type GeoError } from '../../lib/geo'
+import { DEFAULT_CENTER, MAP_STYLE, currentPosition, geocode, rasterStyle, reverseGeocode, type GeoError } from '../../lib/geo'
 import { Button } from '../Button'
 import { useToast } from '../Toast'
 import type { MapInstance, MarkerInstance } from './maplib'
@@ -15,29 +16,52 @@ import type { MapInstance, MarkerInstance } from './maplib'
 type Lib = typeof import('./maplib')
 type MapState = 'loading' | 'ready' | 'error'
 
-const LOAD_TIMEOUT_MS = 15_000
+const LOAD_TIMEOUT_MS = 12_000
 
-/** Создаёт карту в контейнере, держит стиль в тон теме и честно сообщает, если подложка не загрузилась. */
+/** Ошибка плитки, шрифта или значка приходит с sourceId/tile — карта при этом работает, закрывать её нельзя.
+ *  Фатальна только ошибка самого стиля до первой загрузки. */
+function isStyleError(e: unknown): boolean {
+  const ev = e as { sourceId?: string; tile?: unknown } | undefined
+  return !ev?.sourceId && !ev?.tile
+}
+
+/** Создаёт карту в контейнере и держит стиль в тон теме. Не загрузился векторный стиль — переходит
+ *  на растровую подложку; не загрузилась и она — честно говорит, что карты нет. */
 function useMap(container: RefObject<HTMLDivElement | null>, center: GeoPoint, zoom: number) {
   const { resolvedTheme } = useSettings()
   const [map, setMap] = useState<MapInstance | null>(null)
   const [lib, setLib] = useState<Lib | null>(null)
   const [state, setState] = useState<MapState>('loading')
-  const start = useRef({ center, zoom, theme: resolvedTheme })
+  const start = useRef({ center, zoom, theme: resolvedTheme, fallback: false })
 
   useEffect(() => {
     let disposed = false
+    let loaded = false
     let instance: MapInstance | null = null
     let timer = 0
+    const conf = start.current
+
+    // Первая неудача — растровая подложка; вторая — сообщение «карта не загрузилась».
+    const fail = () => {
+      if (disposed || loaded || !instance) return
+      window.clearTimeout(timer)
+      if (conf.fallback) {
+        setState('error')
+        return
+      }
+      conf.fallback = true
+      instance.setStyle(rasterStyle(conf.theme))
+      timer = window.setTimeout(fail, LOAD_TIMEOUT_MS)
+    }
+
     import('./maplib')
       .then((L) => {
         if (disposed || !container.current) return
-        const { center: c, zoom: z, theme } = start.current
         instance = new L.Map({
           container: container.current,
-          style: MAP_STYLE[theme],
-          center: [c.lng, c.lat],
-          zoom: z,
+          style: conf.fallback ? rasterStyle(conf.theme) : MAP_STYLE[conf.theme],
+          center: [conf.center.lng, conf.center.lat],
+          zoom: conf.zoom,
           attributionControl: false,
           // Колесо мыши над картой не должно уводить страницу: прокрутка страницы важнее.
           cooperativeGestures: false,
@@ -47,18 +71,19 @@ function useMap(container: RefObject<HTMLDivElement | null>, center: GeoPoint, z
         })
         instance.addControl(new L.NavigationControl({ showCompass: false }), 'top-right')
         instance.addControl(new L.AttributionControl({ compact: true }), 'bottom-right')
-        timer = window.setTimeout(() => !disposed && setState((s) => (s === 'loading' ? 'error' : s)), LOAD_TIMEOUT_MS)
+        timer = window.setTimeout(fail, LOAD_TIMEOUT_MS)
         instance.on('load', () => {
+          loaded = true
           window.clearTimeout(timer)
           if (!disposed) setState('ready')
         })
-        instance.on('error', () => {
-          // Ошибка до загрузки стиля — подложки нет (нет сети); ошибки отдельных плиток потом не важны.
-          if (!disposed && instance && !instance.isStyleLoaded()) setState('error')
+        instance.on('error', (e: unknown) => {
+          if (isStyleError(e)) fail()
         })
         setLib(L)
         setMap(instance)
       })
+      // Нет WebGL (выключено аппаратное ускорение) или не загрузилась сама библиотека.
       .catch(() => !disposed && setState('error'))
     return () => {
       disposed = true
@@ -71,7 +96,7 @@ function useMap(container: RefObject<HTMLDivElement | null>, center: GeoPoint, z
   useEffect(() => {
     if (map && start.current.theme !== resolvedTheme) {
       start.current.theme = resolvedTheme
-      map.setStyle(MAP_STYLE[resolvedTheme])
+      map.setStyle(start.current.fallback ? rasterStyle(resolvedTheme) : MAP_STYLE[resolvedTheme])
     }
   }, [map, resolvedTheme])
 
