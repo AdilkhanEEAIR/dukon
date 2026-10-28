@@ -16,6 +16,13 @@ vi.mock('../components/charts/echarts', () => ({
   }),
 }))
 import { cleanup } from '@testing-library/react'
+import { MotionGlobalConfig } from 'motion/react'
+
+// В jsdom нет кадров анимации: переходы страниц (AnimatePresence mode="wait") ждали бы конца ухода вечно.
+// skipAnimations завершает любую анимацию motion сразу — тесты проверяют логику, а не тайминги.
+MotionGlobalConfig.skipAnimations = true
+// jsdom не прокручивает окно и громко ругается на scrollTo — после смены страницы мы прокручиваем наверх.
+window.scrollTo = (() => {}) as typeof window.scrollTo
 
 Object.defineProperty(navigator, 'languages', { value: ['ru-RU'], configurable: true })
 
@@ -23,6 +30,7 @@ beforeEach(() => {
   chartCalls.length = 0
   localStorage.clear()
   document.documentElement.dataset.theme = ''
+  delete document.documentElement.dataset.motion
 })
 
 afterEach(() => {

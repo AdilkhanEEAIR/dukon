@@ -1,6 +1,8 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderHook } from '@testing-library/react'
 import { useState, type ReactNode } from 'react'
+import { useScrollReveal } from '../hooks/useScrollReveal'
 import { MemoryRouter } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { Providers } from '../App'
@@ -16,6 +18,8 @@ import { ChoiceRow, Switch } from './Fields'
 import { AuthorLine, LangSwitch, ModePill, ShopSwitcher, ThemeToggle } from './Nav'
 import { Pill, StatusPill } from './Pill'
 import { LossTag } from './PriceTag'
+import { ProductIcon, productKind } from './ProductIcon'
+import { ThemeIcon } from './ThemeIcon'
 import { Segmented } from './Segmented'
 import { ShelfArt } from './ShelfArt'
 import { EmptyState, ErrorState, Notice, ReportSkeleton } from './States'
@@ -365,13 +369,139 @@ describe('Графики', () => {
       />,
     )
     await waitFor(() => expect(screen.getByTestId('branches-chart')).toHaveAttribute('data-ready', 'true'))
-    const opt = chartOptions().at(-1) as { yAxis: { data: string[] } }
+    const opt = chartOptions().at(-1) as { yAxis: { data: string[] }; series: { itemStyle: { color: string }; data: unknown[] }[] }
     // Снизу вверх: самый большой столбец — наверху.
     expect(opt.yAxis.data).toEqual(['A', 'B'])
+    // Потери — красным (статусный critical), а не зелёным акцентом «в плюсе».
+    expect(opt.series[0].itemStyle.color).toBe('#d03b3b')
+    // Заголовок графика выделяет слово «Потери»
+    expect(screen.getByText('Потери')).toHaveClass('loss-word')
+  })
+
+  it('BranchesChart: нулевая потеря подписана серым, а не красным', async () => {
+    seedSettings()
+    mockFetch(happyRoutes)
+    withApp(<BranchesChart rows={[{ id: 'a', name: 'A', value: 0 }, { id: 'b', name: 'B', value: 50 }]} format={(v) => `${v}`} />)
+    await waitFor(() => expect(screen.getByTestId('branches-chart')).toHaveAttribute('data-ready', 'true'))
+    const opt = chartOptions().at(-1) as { series: { data: unknown[] }[] }
+    expect(opt.series[0].data[0]).toMatchObject({ value: 0, label: { fontWeight: 600 } })
+    expect(opt.series[0].data[1]).toBe(50)
   })
 
   it('ShelfArt рисует полку с рамками', () => {
     withI18n(<ShelfArt animate={false} />)
     expect(screen.getByTestId('shelf-art').querySelectorAll('.box').length).toBeGreaterThan(10)
+  })
+})
+
+describe('Иконки товаров', () => {
+  it('категория по названию: демо-товары, бренды и кириллица', () => {
+    expect(productKind('Coca-Cola 1 л')).toBe('cola')
+    expect(productKind('Fanta 1 л')).toBe('orangeSoda')
+    expect(productKind('Вода Легенда 0.5 л')).toBe('water')
+    expect(productKind('Молоко Эльвест 6% 1 л')).toBe('milk')
+    expect(productKind('Кефир Эльвест 0.5 л')).toBe('kefir')
+    expect(productKind('Масло сливочное 180 г')).toBe('butter')
+    expect(productKind('Масло подсолнечное 1 л')).toBe('oil')
+    expect(productKind('Cheetos 55 г')).toBe('chips')
+    expect(productKind('Orbit мята')).toBe('gum')
+    expect(productKind('Кукуруза консервированная')).toBe('corn')
+    expect(productKind('Хлеб нарезной')).toBe('bread')
+    expect(productKind('Red Bull 0.25')).toBe('energy')
+    expect(productKind('Сүт 1 л')).toBe('milk')
+  })
+
+  it('«кола» внутри «шоколада» не делает его газировкой', () => {
+    expect(productKind('Шоколад молочный')).toBe('chocolate')
+    expect(productKind('Milk chocolate bar')).toBe('chocolate')
+    expect(productKind('Школьный набор')).toBe('box')
+  })
+
+  it('незнакомый товар — коробка; нет на полке — пустая плитка', () => {
+    const { container } = render(
+      <>
+        <ProductIcon name="Что-то новое" />
+        <ProductIcon name="Молоко" empty />
+      </>,
+    )
+    const [box, milk] = screen.getAllByTestId('product-icon')
+    expect(box).toHaveAttribute('data-kind', 'box')
+    expect(milk).toHaveClass('pi--empty')
+    expect(container.querySelectorAll('svg.pi__art')).toHaveLength(2)
+  })
+})
+
+describe('Иконка темы', () => {
+  it('одна иконка: солнце в светлой, луна в тёмной', () => {
+    const { container, rerender } = render(<ThemeIcon dark={false} />)
+    expect(container.querySelector('svg')).toHaveClass('theme-icon--sun')
+    rerender(<ThemeIcon dark />)
+    expect(container.querySelector('svg')).toHaveClass('theme-icon--moon')
+    // маска своя у каждой иконки — две кнопки на странице не путают друг другу «укус» луны
+    expect(container.querySelector('mask')?.id).toMatch(/^theme-mask-/)
+  })
+})
+
+describe('Появление при прокрутке', () => {
+  type Cb = (entries: Partial<IntersectionObserverEntry>[]) => void
+  let fire: Cb = () => {}
+  const observed: Element[] = []
+  class FakeIO {
+    constructor(cb: Cb) {
+      fire = cb
+    }
+    observe(el: Element) {
+      observed.push(el)
+    }
+    unobserve() {}
+    disconnect() {}
+  }
+
+  const realIO = window.IntersectionObserver
+  beforeEach(() => {
+    observed.length = 0
+    window.IntersectionObserver = FakeIO as unknown as typeof IntersectionObserver
+  })
+  afterEach(() => {
+    window.IntersectionObserver = realIO
+  })
+
+  it('блок ниже экрана прячется, при докрутке выезжает, при уходе вниз снова прячется', () => {
+    const animate = vi.fn(() => ({ cancel() {}, onfinish: null }))
+    const card = document.createElement('div')
+    card.className = 'sheet'
+    card.animate = animate as unknown as typeof card.animate
+    document.body.appendChild(card)
+    const { unmount } = renderHook(() => useScrollReveal())
+    expect(observed).toContain(card)
+
+    const rect = (top: number) => ({ top }) as DOMRectReadOnly
+    const rootBounds = { height: 800 } as DOMRectReadOnly
+    // ниже экрана с самого начала — мгновенно прячется
+    fire([{ target: card, isIntersecting: false, boundingClientRect: rect(1200), rootBounds }])
+    expect(animate).toHaveBeenLastCalledWith([expect.objectContaining({ opacity: 0 })], expect.objectContaining({ duration: 0 }))
+    // докрутили — выезжает снизу
+    fire([{ target: card, isIntersecting: true, boundingClientRect: rect(600), rootBounds }])
+    const [frames, opts] = animate.mock.lastCall as unknown as [Keyframe[], KeyframeAnimationOptions]
+    expect(frames[0]).toMatchObject({ opacity: 0 })
+    expect(frames[1]).toMatchObject({ opacity: 1 })
+    expect(opts.fill).toBe('both')
+    // крутим вверх — блок уходит вниз с анимацией
+    fire([{ target: card, isIntersecting: false, boundingClientRect: rect(900), rootBounds }])
+    expect(animate).toHaveBeenLastCalledWith([expect.objectContaining({ opacity: 0 })], expect.objectContaining({ duration: expect.any(Number) }))
+    expect((animate.mock.lastCall as unknown as [unknown, { duration: number }])[1].duration).toBeGreaterThan(0)
+    unmount()
+    card.remove()
+  })
+
+  it('навигация и плавающие слои не прячутся', () => {
+    const menu = document.createElement('div')
+    menu.className = 'dd__menu'
+    menu.innerHTML = '<div class="sheet"></div>'
+    document.body.appendChild(menu)
+    const { unmount } = renderHook(() => useScrollReveal())
+    expect(observed).not.toContain(menu.firstElementChild)
+    unmount()
+    menu.remove()
   })
 })

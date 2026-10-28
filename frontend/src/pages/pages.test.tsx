@@ -268,7 +268,10 @@ describe('Филиалы', () => {
     expect(screen.getAllByTestId('branch-row')).toHaveLength(3)
     // 765 + 1248 + 0 сом в день по трём филиалам
     expect(screen.getByTestId('branches-total').getAttribute('aria-label')).toMatch(/^2\s013\sсом$/)
-    expect(screen.getByText(/Больше всего теряет: Manas 47/)).toBeInTheDocument()
+    expect(screen.getByTestId('branches-worst')).toHaveTextContent('Больше всего теряет: Manas 47')
+    // слово о потерях — красным и жирным, отдельным элементом
+    expect(within(screen.getByTestId('branches-worst')).getByText('теряет')).toHaveClass('loss-word')
+    expect(within(screen.getByTestId('branches-total-label')).getByText('теряют')).toHaveClass('loss-word')
     await waitFor(() => expect(screen.getByTestId('branches-chart')).toHaveAttribute('data-ready', 'true'))
   })
 
@@ -359,7 +362,22 @@ describe('Настройки', () => {
     await userEvent.click(screen.getByTestId('settings-currency'))
     await userEvent.click(screen.getByRole('option', { name: /EUR/ }))
     expect(JSON.parse(localStorage.getItem('dukon.settings')!).currency).toBe('EUR')
-    expect(screen.getAllByRole('radio')).toHaveLength(2)
+    // тема: светлая/тёмная; анимации: как в системе/все/спокойные
+    expect(screen.getAllByRole('radio')).toHaveLength(5)
+  })
+
+  it('анимации: «как в системе» при системном «меньше движения» — спокойные, «Все» включает полные', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app/settings')
+    // matchMedia в тестах говорит «уменьшить движение» — поэтому подсказка и спокойный режим
+    expect(await screen.findByTestId('motion-system-note')).toBeInTheDocument()
+    expect(document.documentElement.dataset.motion).toBe('calm')
+    await userEvent.click(screen.getByRole('radio', { name: /Все/ }))
+    expect(document.documentElement.dataset.motion).toBe('full')
+    expect(JSON.parse(localStorage.getItem('dukon.settings')!).motion).toBe('full')
+    expect(screen.queryByTestId('motion-system-note')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /Спокойные/ }))
+    expect(document.documentElement.dataset.motion).toBe('calm')
   })
 
   it('код устройства: копировать, привязать чужой, неверный код отклоняется', async () => {
