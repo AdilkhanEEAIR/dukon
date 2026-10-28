@@ -1,25 +1,31 @@
 // Главная: ценник потерь, метрики с иконками, график «было → стало», что требует внимания, обходы.
-// Движение — один раз при открытии (каскад, набегание чисел, качнувшийся ценник); дальше всё спокойно.
+// Движение при открытии — каскад, набегание чисел, качнувшийся ценник. Дальше экран «дышит»: часы,
+// счётчик потерь за сегодня и «3 ч назад» меняются сами. В живом режиме без обходов — приглашение
+// к первому обходу с полкой, на которой рамки находят товар.
 
 import { ArrowRight, Building2, ChevronRight, Package, PackageX, ScanLine, Sparkles, TrendingDown } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLatest, type Latest } from '../app/data'
-import { useShops } from '../app/shops'
+import { useMode } from '../app/mode'
+import { useViewShop } from '../app/shops'
 import { Button } from '../components/Button'
 import { StockChart } from '../components/charts/Charts'
 import { CountUp } from '../components/CountUp'
+import { Clock, LossMeter, TimeAgo } from '../components/Live'
 import { ItemRow } from '../components/ItemRow'
 import { ModePill, PageActions, ShopSwitcher } from '../components/Nav'
 import { Pill } from '../components/Pill'
 import { LossTag } from '../components/PriceTag'
+import { ShelfArt } from '../components/ShelfArt'
 import { EmptyState, ErrorState, ReportSkeleton } from '../components/States'
 import { useI18n } from '../i18n'
 import { capitalize, formatDate, formatWhen } from '../lib/format'
 
 export function HomePage() {
   const { t, locale } = useI18n()
-  const { current } = useShops()
+  const { current } = useViewShop()
+  const { mode } = useMode()
   const { latest, reload } = useLatest()
   const [today] = useState(() => new Date())
 
@@ -33,7 +39,11 @@ export function HomePage() {
           <h1 className="h1 hide-mobile" data-testid="shop-name">
             {current?.name ?? t('common.appName')}
           </h1>
-          <p className="page-head__sub">{capitalize(formatDate(today, locale))}</p>
+          <p className="page-head__sub row row--wrap" style={{ gap: '0 8px' }}>
+            <span>{capitalize(formatDate(today, locale))}</span>
+            <span aria-hidden>·</span>
+            <Clock />
+          </p>
         </div>
         <PageActions />
       </header>
@@ -43,7 +53,11 @@ export function HomePage() {
       ) : latest.status === 'error' ? (
         <ErrorState error={latest.error} onRetry={reload} />
       ) : latest.data === null ? (
-        <EmptyState icon={ScanLine} title={t('home.noWalks')} text={t('home.noWalksBody')} action={<Button to="/app/scan">{t('home.firstWalk')}</Button>} />
+        mode === 'live' ? (
+          <FirstWalk />
+        ) : (
+          <EmptyState icon={ScanLine} title={t('home.noWalks')} text={t('home.noWalksBody')} action={<Button to="/app/scan">{t('home.firstWalk')}</Button>} />
+        )
       ) : (
         <HomeContent data={latest.data} />
       )}
@@ -51,9 +65,44 @@ export function HomePage() {
   )
 }
 
+/** Первый запуск в живом режиме: что произойдёт после обхода — показано на полке, где рамки находят товар. */
+function FirstWalk() {
+  const { t, list } = useI18n()
+  const steps = list<{ title: string; body: string }>('landing.steps').slice(0, 3)
+  return (
+    <section className="first-walk sheet" data-testid="first-walk">
+      <div className="first-walk__text">
+        <h2 className="h2">{t('home.noWalks')}</h2>
+        <p className="body-2">{t('home.noWalksBody')}</p>
+        <ol className="first-walk__steps">
+          {steps.map((s, i) => (
+            <li key={s.title}>
+              <span className="first-walk__n" aria-hidden>
+                {i + 1}
+              </span>
+              <span className="stack" style={{ gap: 2 }}>
+                <b>{s.title}</b>
+                <span className="small">{s.body}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+        <div>
+          <Button to="/app/scan" size="lg" icon={<ScanLine size={18} />} className="invite">
+            {t('home.firstWalk')}
+          </Button>
+        </div>
+      </div>
+      <div className="first-walk__art" aria-hidden>
+        <ShelfArt />
+      </div>
+    </section>
+  )
+}
+
 function HomeContent({ data }: { data: Latest }) {
   const { t, rich, locale } = useI18n()
-  const { shops } = useShops()
+  const { shops } = useViewShop()
   const { walk, diff, walks } = data
   const attention = diff.changes.filter((c) => c.status !== 'ok' && c.status !== 'new_item').slice(0, 6)
 
@@ -62,14 +111,17 @@ function HomeContent({ data }: { data: Latest }) {
       <div className="stack stagger" style={{ gap: 22 }}>
         <div className="row row--wrap" style={{ gap: 8 }}>
           <Pill tone={walk.source === 'demo' ? 'neutral' : 'ok'}>{walk.source === 'demo' ? t('home.demoBadge') : t('home.liveBadge')}</Pill>
-          <span className="small">
+          <span className="small row" style={{ gap: 6 }}>
             {formatWhen(walk.created_at, locale)}
+            <span aria-hidden>·</span>
+            <TimeAgo at={walk.created_at} />
           </span>
           <span className="grow" />
           <ModePill compact />
         </div>
 
         <LossTag valueKgs={diff.loss_per_day} label={rich('home.lossTitle')} unit={t('common.perDay')} note={t('home.lossBody', { out: diff.out_of_stock, slots: diff.empty_slots })} />
+        <LossMeter lossPerDayKgs={diff.loss_per_day} />
 
         <div className="metric-row">
           <div className="metric">

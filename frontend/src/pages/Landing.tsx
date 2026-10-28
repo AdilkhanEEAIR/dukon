@@ -1,8 +1,10 @@
 // Лендинг: продукт встречает первым, а не демо-обход. Один оркестрованный момент — полка с рамками;
 // остальное спокойно: шаги с иконками, модели Meta, призыв открыть магазин, автор внизу.
+// Вторая кнопка зависит от режима: живой — «Как это работает» (слова «демо» нет), без моделей — «Посмотреть демо».
 
-import { ArrowRight, Bot, Camera, Code, Coins, ScanSearch, Store } from 'lucide-react'
+import { ArrowDown, ArrowRight, Bot, Camera, Code, Coins, ScanSearch, Store } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useMode } from '../app/mode'
 import { useShops } from '../app/shops'
 import { Button } from '../components/Button'
 import { AuthorLine, LangSwitch, REPO_URL, ThemeToggle } from '../components/Nav'
@@ -15,9 +17,12 @@ const STEP_ICONS = [Camera, ScanSearch, Coins, Bot]
 export function LandingPage() {
   const { t, list } = useI18n()
   const { shops } = useShops()
+  const { mode, status } = useMode()
   const steps = list<{ title: string; body: string }>('landing.steps')
   const models = list<{ name: string; role: string }>('landing.models')
-  const appTarget = shops.length ? '/app' : '/app/onboarding'
+  const demo = status !== 'loading' && mode === 'demo'
+  // В демо магазин не нужен — сразу в приложение; в живом режиме без магазина — сначала настроить его.
+  const appTarget = shops.length || demo ? '/app' : '/app/onboarding'
 
   return (
     <div className="app__main landing" data-testid="landing">
@@ -40,9 +45,15 @@ export function LandingPage() {
             <Button size="lg" to={appTarget} icon={<ArrowRight size={18} />} className="nudge">
               {t('common.openApp')}
             </Button>
-            <Button size="lg" variant="secondary" to="/app/shelves?demo=1">
-              {t('common.seeDemo')}
-            </Button>
+            {demo ? (
+              <Button size="lg" variant="secondary" to="/app/shelves?demo=1">
+                {t('common.seeDemo')}
+              </Button>
+            ) : (
+              <Button size="lg" variant="secondary" icon={<ArrowDown size={18} />} onClick={() => document.getElementById('how')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+                {t('landing.howItWorks')}
+              </Button>
+            )}
           </div>
           <p className="hero__foot">{t('landing.heroFootnote')}</p>
         </div>
@@ -51,7 +62,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="section">
+      <section className="section" id="how" style={{ scrollMarginTop: 24 }}>
         <h2 className="h1">{t('landing.stepsTitle')}</h2>
         <div className="steps-grid stagger">
           {steps.map((s, i) => {

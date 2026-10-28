@@ -1,6 +1,6 @@
 // Уведомления: список из данных, нажатие ведёт к товару или в «Систему» и помечает прочитанным.
 
-import { BellOff, ChevronRight, CircleCheck, PackageSearch, Tag, TrendingDown, Zap } from 'lucide-react'
+import { BellOff, ChevronRight, CircleCheck, CirclePause, PackageSearch, Tag, TrendingDown, Zap } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useNotifications, type Notification } from '../app/notifications'
 import { Button } from '../components/Button'
@@ -16,6 +16,7 @@ const ICON = {
   price_mismatch: { Icon: Tag, cls: 'notif__icon--price' },
   mode: { Icon: Zap, cls: '' },
   live: { Icon: CircleCheck, cls: 'notif__icon--ok' },
+  paused: { Icon: CirclePause, cls: 'notif__icon--low' },
 } as const
 
 export function NotificationsPage() {
@@ -30,7 +31,7 @@ export function NotificationsPage() {
 
   const text = (n: Notification) => {
     const p = { ...n.params }
-    if (n.kind === 'mode') p.reason = t(`mode.reasons.${String(p.reason) as 'unknown'}`)
+    if (n.kind === 'mode' || n.kind === 'paused') p.reason = t(`mode.reasons.${String(p.reason) as 'unknown'}`)
     if (typeof p.name === 'string') p.name = product(p.name)
     return t(`notifications.kinds.${n.kind}`, p)
   }

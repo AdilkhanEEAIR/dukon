@@ -6,6 +6,7 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { errorCode } from '../api/client'
 import { CURRENCIES, useSettings, type Currency, type Theme } from '../app/settings'
+import { useMode } from '../app/mode'
 import { useShops } from '../app/shops'
 import { Button } from '../components/Button'
 import { Dropdown } from '../components/Dropdown'
@@ -22,6 +23,7 @@ export function OnboardingPage() {
   const { t, locale, setLocale } = useI18n()
   const { settings, update } = useSettings()
   const { create } = useShops()
+  const { setView } = useMode()
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
@@ -40,6 +42,8 @@ export function OnboardingPage() {
     setFailure(null)
     try {
       await create(name.trim(), address.trim(), point)
+      // Завёл свой магазин — значит, хочет видеть своё, а не демо-сеть (даже если до этого смотрел демо).
+      setView('live')
       navigate('/app', { replace: true })
     } catch (err) {
       setFailure(err)

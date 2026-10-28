@@ -3,6 +3,7 @@
 import { RefreshCw, ShieldCheck } from 'lucide-react'
 import { useMode } from '../app/mode'
 import { Button } from '../components/Button'
+import { TimeAgo } from '../components/Live'
 import { ModePill, PageActions } from '../components/Nav'
 import { EmptyState, Skeleton } from '../components/States'
 import { useI18n } from '../i18n'
@@ -10,14 +11,22 @@ import { formatNumber } from '../lib/format'
 
 export function SystemPage() {
   const { t, locale } = useI18n()
-  const { status, health, budget, refresh } = useMode()
+  const { status, health, budget, refresh, fetchedAt } = useMode()
 
   return (
     <div className="page stagger" style={{ maxWidth: 720 }} data-testid="system">
       <header className="page-head">
         <div className="page-head__text">
           <h1 className="h1">{t('system.title')}</h1>
-          <p className="page-head__sub">{t('system.subtitle')}</p>
+          <p className="page-head__sub">
+            {t('system.subtitle')}
+            {fetchedAt && (
+              <>
+                {' · '}
+                <TimeAgo at={fetchedAt} label={(ago) => t('home.updated', { t: ago })} />
+              </>
+            )}
+          </p>
         </div>
         <div className="row" style={{ gap: 8 }}>
           <Button size="sm" variant="secondary" onClick={() => void refresh()} icon={<RefreshCw size={14} />}>

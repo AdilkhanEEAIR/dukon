@@ -1,12 +1,12 @@
-// Настройки: магазины и филиалы (на сервере), язык, валюта, тема, демо-код, код устройства, сброс.
+// Настройки: магазины и филиалы (на сервере), язык, валюта, тема, источник данных, код доступа, код устройства, сброс.
 // Удаление магазина — в два нажатия вместо системного confirm: диалог браузера блокирует страницу.
 
-import { Check, Copy, Feather, Info, Link2, MapPin, MapPinned, MonitorSmartphone, Pencil, Plus, Sparkles, Store, Trash2, X } from 'lucide-react'
+import { Check, Copy, Feather, FlaskConical, Gauge, Info, Link2, MapPin, MapPinned, MonitorSmartphone, Pencil, Plus, Sparkles, Store, Trash2, X } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { API_BASE, errorCode } from '../api/client'
 import type { GeoPoint, Shop } from '../api/types'
-import { CURRENCIES, DEVICE_CODE, useSettings, type Currency, type MotionPref, type Theme } from '../app/settings'
+import { CURRENCIES, DEVICE_CODE, useSettings, type Currency, type DataMode, type MotionPref, type Theme } from '../app/settings'
 import { useShops } from '../app/shops'
 import { Button, IconButton } from '../components/Button'
 import { Dropdown } from '../components/Dropdown'
@@ -117,6 +117,18 @@ export function SettingsPage() {
 
       <section className="sheet sheet--pad stack" style={{ gap: 12 }}>
         <h2 className="h3">{t('settings.liveMode')}</h2>
+        <span className="field__label" style={{ marginBottom: -6 }}>{t('settings.data')}</span>
+        <ChoiceRow<DataMode>
+          label={t('settings.data')}
+          value={settings.dataMode}
+          onChange={(v) => update({ dataMode: v })}
+          items={[
+            { key: 'auto', label: t('settings.dataAuto'), icon: <Gauge size={18} /> },
+            { key: 'live', label: t('settings.dataLive'), icon: <Store size={18} /> },
+            { key: 'demo', label: t('settings.dataDemo'), icon: <FlaskConical size={18} /> },
+          ]}
+        />
+        <p className="small">{t('settings.dataBody')}</p>
         <Field label={t('settings.demoKey')} hint={t('settings.demoKeyBody')} htmlFor="s-key">
           <div className="row" style={{ gap: 8 }}>
             <Input id="s-key" value={demoKey} onChange={(e) => setDemoKey(e.target.value)} autoComplete="off" />

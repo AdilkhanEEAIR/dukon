@@ -1,7 +1,8 @@
-// Новый обход: фото → отправка → шаги → отчёт. Если живой режим недоступен — объясняем причину
-// и предлагаем демо-результат. Ошибка сервера показывается с кодом и кнопкой «ещё раз».
+// Новый обход: фото → отправка → шаги → отчёт. Обход всегда уходит в свой магазин: нет магазина — сначала
+// онбординг. Модели недоступны — объясняем причину; в демо-режиме ещё и предлагаем демо-результат.
+// Успешный обход из демо-режима возвращает приложение к своим данным: человек только что сделал настоящее.
 
-import { Camera, Circle, CircleAlert, CircleCheck, LoaderCircle, MapPin, Sparkles, Upload, X } from 'lucide-react'
+import { Camera, Circle, CircleAlert, CircleCheck, FlaskConical, LoaderCircle, MapPin, Sparkles, Store, Upload, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, errorCode } from '../api/client'
@@ -11,7 +12,7 @@ import { useSettings } from '../app/settings'
 import { useShops } from '../app/shops'
 import { Button, IconButton } from '../components/Button'
 import { Field, Input } from '../components/Fields'
-import { Notice, Skeleton } from '../components/States'
+import { EmptyState, Notice, Skeleton } from '../components/States'
 import { useToast } from '../components/Toast'
 import { useI18n } from '../i18n'
 import { capitalize } from '../lib/format'
@@ -26,7 +27,7 @@ export function ScanPage() {
   const { t, locale, list } = useI18n()
   const navigate = useNavigate()
   const toast = useToast()
-  const { status, mode, reason, refresh } = useMode()
+  const { status, mode, health, liveReady, setView, refresh } = useMode()
   const { settings, update, deviceId } = useSettings()
   const { current } = useShops()
   const { reload } = useLatest()
@@ -66,7 +67,9 @@ export function ScanPage() {
       setStep(3)
       setPhase('done')
       toast('success', t('scan.done'), t('scan.doneBody', { n: walk.photos.length }))
-      void reload()
+      // Из демо — обратно к своим данным; перезагрузка данных случится сама при смене режима.
+      if (mode === 'demo') setView('live')
+      else void reload()
       void refresh()
       setTimeout(() => navigate(`/app/shelves/${walk.id}`), 500)
     } catch (err) {
@@ -78,7 +81,9 @@ export function ScanPage() {
     }
   }
 
-  const liveBlocked = status === 'ready' && mode === 'demo' && reason !== 'manual'
+  // Сервер отвечает, но модели недоступны (нет ключа, кредитов, бюджета) — новые обходы на паузе.
+  const liveBlocked = status === 'ready' && !liveReady
+  const serverReason = health?.reason ?? 'unknown'
 
   return (
     <div className="page stagger" style={{ maxWidth: 640 }} data-testid="scan">
@@ -106,11 +111,23 @@ export function ScanPage() {
           <Skeleton h={200} r={18} />
           <Skeleton h={52} r={26} />
         </div>
+      ) : !current && status === 'ready' ? (
+        <div className="sheet">
+          <EmptyState icon={Store} title={t('scan.needShop')} text={t('scan.needShopBody')} action={<Button to="/app/onboarding">{t('scan.needShopCta')}</Button>} />
+        </div>
       ) : phase === 'uploading' ? (
         <Pipeline step={step} count={files.length} steps={steps} />
       ) : (
         <div className="stack" style={{ gap: 16 }}>
-          {liveBlocked && <Notice title={t('scan.liveOff')} text={reason && reason !== 'no_api_key' ? capitalize(t(`mode.reasons.${reason}`)) : t('scan.liveOffBody')} />}
+          {liveBlocked && <Notice title={t('scan.liveOff')} text={serverReason !== 'no_api_key' ? capitalize(t(`mode.reasons.${serverReason}`)) : t('scan.liveOffBody')} />}
+          {!liveBlocked && mode === 'demo' && status === 'ready' && current && (
+            <p className="demo-line" data-testid="scan-from-demo">
+              <span className="demo-line__tag">
+                <FlaskConical size={12} />
+              </span>
+              {t('scan.fromDemo', { shop: current.name })}
+            </p>
+          )}
           {status === 'down' && <Notice tone="out" title={t('errors.network.title')} text={t('errors.network.hint')} />}
 
           <label
@@ -157,9 +174,11 @@ export function ScanPage() {
           <Button size="lg" block disabled={files.length === 0 || liveBlocked || status === 'down'} onClick={submit} icon={<Upload size={18} />} data-testid="submit">
             {files.length ? t('scan.analyze', { n: files.length }) : t('scan.addFirst')}
           </Button>
-          <Button variant="quiet" block to="/app/shelves?demo=1" icon={<Sparkles size={16} />}>
-            {t('scan.useDemo')}
-          </Button>
+          {mode === 'demo' && (
+            <Button variant="quiet" block to="/app/shelves" icon={<Sparkles size={16} />}>
+              {t('scan.useDemo')}
+            </Button>
+          )}
         </div>
       )}
     </div>
