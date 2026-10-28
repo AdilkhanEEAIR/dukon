@@ -1,12 +1,12 @@
 // Полки: список обходов и отчёт выбранного. Товар открывается в шторке (телефон) / панели (ПК).
 
 import { ArrowLeftRight, Package, RefreshCw, ScanLine, Wallet } from 'lucide-react'
+import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ItemChange, Status, Walk, WalkDiff } from '../api/types'
 import { DEMO_SHOP_ID, useLatest } from '../app/data'
-import { useSettings } from '../app/settings'
 import { Button } from '../components/Button'
 import { CountUp } from '../components/CountUp'
 import { Drawer } from '../components/Drawer'
@@ -17,10 +17,15 @@ import { PageActions } from '../components/Nav'
 import { Segmented } from '../components/Segmented'
 import { EmptyState, ErrorState, ReportSkeleton } from '../components/States'
 import { useAsync } from '../hooks/useAsync'
+import { prefersReducedMotion } from '../hooks/useCountUp'
 import { useI18n } from '../i18n'
-import { formatHours, formatMoney, formatShortDate, formatTime } from '../lib/format'
+import { formatHours, formatShortDate, formatTime } from '../lib/format'
+import { Money } from '../components/Money'
+import { WalkCalendar } from '../components/WalkCalendar'
 
 type Filter = 'all' | 'out_of_stock' | 'low_stock' | 'price_mismatch'
+
+const pause = (ms: number) => new Promise<void>((r) => (ms > 0 ? setTimeout(r, ms) : r()))
 
 interface Report {
   walk: Walk
@@ -38,7 +43,9 @@ export function ShelvesPage() {
   // Конкретный обход грузим отдельно; «последний» берём из общего контекста, чтобы не дублировать запрос.
   const specific = useAsync<Report>(
     async () => {
-      const [walk, diff] = await Promise.all([api.walk(id!), api.diff(id!)])
+      // Небольшая пауза со скелетом при смене обхода: без неё отчёт подменяется мгновенно,
+      // и кажется, что нажатие на день в календаре ничего не сделало.
+      const [[walk, diff]] = await Promise.all([Promise.all([api.walk(id!), api.diff(id!)]), pause(prefersReducedMotion() ? 0 : 520)])
       // История — только этого же магазина: филиалы между собой не смешиваем.
       const walks = await api.walks(walk.source, walk.shop_id ?? undefined)
       return { walk, diff, walks }
@@ -89,8 +96,7 @@ export function ShelvesPage() {
 }
 
 function ReportBody({ report }: { report: Report }) {
-  const { t, rich, locale } = useI18n()
-  const { settings } = useSettings()
+  const { t, rich, locale, product } = useI18n()
   const { walk, diff, walks } = report
   const [filter, setFilter] = useState<Filter>('all')
   const [open, setOpen] = useState<ItemChange | null>(null)
@@ -107,15 +113,11 @@ function ReportBody({ report }: { report: Report }) {
   const since = diff.walk_before_id ? t('shelves.sinceLast', { t: formatHours(diff.hours_between, t) }) : t('shelves.firstWalk')
 
   return (
-    <div className="two-col" style={{ alignItems: 'start' }}>
+    <div className="two-col report" style={{ alignItems: 'start' }}>
+      {/* Полоса «пересканирования» проходит по отчёту при каждом открытии обхода */}
+      <span className="scan-sweep" aria-hidden key={walk.id} />
       <div className="stack" style={{ gap: 18 }}>
-        <div className="row row--wrap" style={{ gap: 10 }}>
-          {walks.map((w) => (
-            <Button key={w.id} size="sm" variant={w.id === walk.id ? 'primary' : 'secondary'} to={`/app/shelves/${w.id}`}>
-              {formatShortDate(w.created_at, locale)} · {formatTime(w.created_at, locale)}
-            </Button>
-          ))}
-        </div>
+        <WalkCalendar walks={walks} current={walk} />
         <p className="small">{since}</p>
 
         <div className="metric-row">
@@ -137,7 +139,7 @@ function ReportBody({ report }: { report: Report }) {
             <span className="metric__icon metric__icon--out">
               <Wallet size={15} />
             </span>
-            <CountUp value={diff.loss_per_day} format={(v) => formatMoney(v, locale, settings.currency)} className="num-lg metric__money c-out" />
+            <Money kgs={diff.loss_per_day} className="num-lg metric__money c-out" altBlock />
             <span className="metric__label">{rich('shelves.losing')}</span>
           </div>
         </div>
@@ -159,9 +161,15 @@ function ReportBody({ report }: { report: Report }) {
             <EmptyState title={t('shelves.nothingHere')} text={t('shelves.nothingHereBody')} />
           ) : (
             <div className="rows">
-              {visible.map((c) => (
-                <ItemRow key={c.sku} change={c} onOpen={setOpen} />
-              ))}
+              {/* Смена фильтра: ушедшие строки уезжают влево, оставшиеся плавно съезжают на свои места,
+                  новые въезжают каскадом (это делает общий наблюдатель появления). */}
+              <AnimatePresence initial={false} mode="popLayout">
+                {visible.map((c) => (
+                  <motion.div key={c.sku} layout="position" initial={false} exit={{ opacity: 0, x: -18, scale: 0.98, transition: { duration: 0.22 } }} transition={{ layout: { type: 'spring', stiffness: 380, damping: 34 } }}>
+                    <ItemRow change={c} onOpen={setOpen} />
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
           )}
         </div>
@@ -200,7 +208,7 @@ function ReportBody({ report }: { report: Report }) {
         <StockChart changes={diff.changes} />
       </div>
 
-      <Drawer open={open !== null} onClose={close} label={open?.name ?? ''}>
+      <Drawer open={open !== null} onClose={close} label={open ? product(open.name) : ''}>
         {open && <ItemDetail change={open} history={countHistory(walks, open.sku)} />}
       </Drawer>
     </div>
