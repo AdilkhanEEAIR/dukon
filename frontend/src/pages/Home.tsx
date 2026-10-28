@@ -1,158 +1,186 @@
-// Главная: последний обход, потери в сомах, что требует внимания. Данные — demo, пока нет живых.
+// Главная: ценник потерь, метрики с иконками, график «было → стало», что требует внимания, обходы.
+// Движение — один раз при открытии (каскад, набегание чисел, качнувшийся ценник); дальше всё спокойно.
 
+import { ArrowRight, Building2, ChevronRight, Package, PackageX, ScanLine, Sparkles, TrendingDown } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { loadLatest } from '../api/latest'
-import type { ItemChange, Walk, WalkDiff } from '../api/types'
+import { Link } from 'react-router-dom'
+import { useLatest, type Latest } from '../app/data'
+import { useShops } from '../app/shops'
 import { Button } from '../components/Button'
-import { STATUS_COLOR, STATUS_META } from '../components/Chip'
-import { Icon } from '../components/Icon'
+import { StockChart } from '../components/charts/Charts'
+import { CountUp } from '../components/CountUp'
+import { ItemRow } from '../components/ItemRow'
+import { ModePill, PageActions, ShopSwitcher } from '../components/Nav'
+import { Pill } from '../components/Pill'
+import { LossTag } from '../components/PriceTag'
 import { EmptyState, ErrorState, ReportSkeleton } from '../components/States'
-import { useAsync } from '../hooks/useAsync'
-import { formatSom, formatWhen } from '../lib/format'
+import { useI18n } from '../i18n'
+import { capitalize, formatDate, formatShortDate, formatTime } from '../lib/format'
 
 export function HomePage() {
-  const navigate = useNavigate()
-  const { state, refetch } = useAsync(loadLatest, [])
-  const [today] = useState(() => formatWhen(new Date()))
+  const { t, locale } = useI18n()
+  const { current } = useShops()
+  const { latest, reload } = useLatest()
+  const [today] = useState(() => new Date())
 
   return (
-    <div className="page">
+    <div className="page stagger" data-testid="home">
       <header className="page-head">
         <div className="page-head__text">
-          <span className="label">{today}</span>
-          <h1 className="h1" style={{ margin: 0 }}>
-            Dukon
+          <span className="small">{capitalize(formatDate(today, locale))}</span>
+          <div className="hide-desktop">
+            <ShopSwitcher variant="title" />
+          </div>
+          <h1 className="h1 hide-mobile" data-testid="shop-name">
+            {current?.name ?? t('common.appName')}
           </h1>
         </div>
-        <button className="icon-btn" aria-label="Уведомления">
-          <Icon name="bell" size={18} />
-        </button>
+        <PageActions />
       </header>
 
-      {state.status === 'loading' || state.status === 'idle' ? (
+      {latest.status === 'loading' || latest.status === 'idle' ? (
         <ReportSkeleton />
-      ) : state.status === 'error' ? (
-        <ErrorState error={state.error} onRetry={refetch} />
-      ) : state.data === null ? (
-        <EmptyState
-          icon="scan"
-          title="Обходов пока нет"
-          text="Пройдите вдоль полок с телефоном — Dukon посчитает товар и покажет, чего не хватает."
-          action={<Button onClick={() => navigate('/scan')}>Первый обход</Button>}
-        />
+      ) : latest.status === 'error' ? (
+        <ErrorState error={latest.error} onRetry={reload} />
+      ) : latest.data === null ? (
+        <EmptyState icon={ScanLine} title={t('home.noWalks')} text={t('home.noWalksBody')} action={<Button to="/app/scan">{t('home.firstWalk')}</Button>} />
       ) : (
-        <HomeContent walk={state.data.walk} diff={state.data.diff} />
+        <HomeContent data={latest.data} />
       )}
     </div>
   )
 }
 
-function HomeContent({ walk, diff }: { walk: Walk; diff: WalkDiff }) {
-  const navigate = useNavigate()
+function HomeContent({ data }: { data: Latest }) {
+  const { t, locale } = useI18n()
+  const { shops } = useShops()
+  const { walk, diff, walks } = data
   const attention = diff.changes.filter((c) => c.status !== 'ok' && c.status !== 'new_item').slice(0, 6)
-  return (
-    <div className="bento">
-      <div className="stack">
-        <section className="card card--elevated stack" style={{ gap: 14 }}>
-          <div className="row row--between">
-            <span className="caption">{walk.label || 'Последний обход'}</span>
-            <span className={`chip ${walk.source === 'demo' ? 'chip--violet' : 'chip--success'}`}>
-              {walk.source === 'demo' ? 'Демо' : 'Живой обход'}
-            </span>
-          </div>
-          <div className="row" style={{ alignItems: 'flex-end', gap: 10 }}>
-            <span className="num-xl" data-testid="total-items">
-              {diff.total_items}
-            </span>
-            <div className="stack" style={{ gap: 0, paddingBottom: 8 }}>
-              <span className="muted">товаров на полках</span>
-              <span className="caption c-accent">{diff.changed} изменений с прошлого обхода</span>
-            </div>
-          </div>
-          <div className="row" style={{ gap: 18 }}>
-            <Stat n={diff.out_of_stock} label="нет" color="var(--danger)" />
-            <Stat n={diff.low_stock} label="мало" color="var(--warning)" />
-            <Stat n={diff.price_mismatch} label="ценник" color="var(--info)" />
-          </div>
-          <Button block onClick={() => navigate('/scan')} icon={<Icon name="scan" size={18} />}>
-            Новый обход
-          </Button>
-        </section>
 
-        <section className="loss" data-testid="loss-card">
-          <span className="label">Теряете на пустых полках</span>
-          <span className="loss__value">{formatSom(diff.loss_per_day)}</span>
-          <span className="caption">в день · {diff.out_of_stock} позиций закончились, {diff.empty_slots} пустых мест</span>
-        </section>
+  return (
+    <div className="two-col home-cols">
+      <div className="stack stagger" style={{ gap: 22 }}>
+        <div className="row row--wrap" style={{ gap: 8 }}>
+          <Pill tone={walk.source === 'demo' ? 'neutral' : 'ok'}>{walk.source === 'demo' ? t('home.demoBadge') : t('home.liveBadge')}</Pill>
+          <span className="small">
+            {capitalize(formatShortDate(walk.created_at, locale))} · {formatTime(walk.created_at, locale)}
+          </span>
+          <span className="grow" />
+          <ModePill compact />
+        </div>
+
+        <LossTag valueKgs={diff.loss_per_day} label={t('home.lossTitle')} unit={`${t('common.perDay')} · ${t('home.lossBody', { out: diff.out_of_stock, slots: diff.empty_slots })}`} />
+
+        <div className="metric-row">
+          <div className="metric">
+            <span className="metric__icon metric__icon--accent">
+              <Package size={15} />
+            </span>
+            <CountUp value={diff.total_items} className="num-lg" testId="total-items" />
+            <span className="metric__label">{t('home.onShelves')}</span>
+          </div>
+          <div className="metric">
+            <span className="metric__icon metric__icon--out">
+              <PackageX size={15} />
+            </span>
+            <CountUp value={diff.out_of_stock} className="num-lg c-out" />
+            <span className="metric__label">{t('home.out')}</span>
+          </div>
+          <div className="metric">
+            <span className="metric__icon metric__icon--low">
+              <TrendingDown size={15} />
+            </span>
+            <CountUp value={diff.low_stock} className="num-lg c-low" />
+            <span className="metric__label">{t('home.low')}</span>
+          </div>
+        </div>
+        <p className="small">{t('home.changed', { n: diff.changed })}</p>
+
+        <div className="row row--wrap home-actions" style={{ gap: 10 }}>
+          <Button to="/app/scan" size="lg" icon={<ScanLine size={18} />}>
+            {t('home.newWalk')}
+          </Button>
+          <Button to="/app/shelves" size="lg" variant="secondary" className="nudge" icon={<ArrowRight size={18} />}>
+            {t('home.fullReport')}
+          </Button>
+        </div>
+
+        <div className="home-chart">
+          <StockChart changes={diff.changes} />
+        </div>
       </div>
 
-      <div className="stack">
-        <div className="row row--between" style={{ paddingTop: 4 }}>
-          <span className="h3">Требует внимания</span>
-          <Link to="/report" className="caption c-accent">
-            Весь отчёт
+      <div className="stack stagger" style={{ gap: 14 }}>
+        <div className="section__head">
+          <h2 className="h2">{t('home.attention')}</h2>
+          <Link to="/app/shelves" className="small c-accent nudge" style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            {t('home.fullReport')}
+            <ChevronRight size={14} />
           </Link>
         </div>
-        {attention.length === 0 ? (
-          <div className="card">
-            <EmptyState icon="check" title="Всё на месте" text="Ни одной позиции без товара." />
-          </div>
-        ) : (
-          <div className="card stack" style={{ gap: 2, paddingTop: 8, paddingBottom: 8 }}>
-            {attention.map((c) => (
-              <AttentionRow key={c.sku} change={c} />
-            ))}
-          </div>
-        )}
-        <Link to="/orders" className="card card--interactive row" style={{ background: 'var(--violet-soft)' }}>
-          <Icon name="sparkle" size={20} className="c-info" />
-          <div className="stack" style={{ gap: 1, flex: 1 }}>
-            <span style={{ fontWeight: 600 }}>Черновики заказов готовы</span>
-            <span className="caption">Агент отправит их поставщикам после вашего подтверждения</span>
-          </div>
-          <Icon name="chevron" size={18} className="muted" />
+        <div className="sheet" style={{ padding: '4px 16px' }}>
+          {attention.length === 0 ? (
+            <EmptyState title={t('home.allGood')} text={t('home.allGoodBody')} />
+          ) : (
+            <div className="rows">
+              {attention.map((c, i) => (
+                <ItemRow key={c.sku} change={c} index={i} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <Link to="/app/orders" className="sheet sheet--soft row lift nudge" style={{ padding: 16 }} data-testid="orders-link">
+          <span className="metric__icon metric__icon--accent" style={{ margin: 0, width: 38, height: 38, borderRadius: 12 }}>
+            <Sparkles size={18} />
+          </span>
+          <span className="stack grow" style={{ gap: 1 }}>
+            <span style={{ fontWeight: 700 }}>{t('home.ordersReady')}</span>
+            <span className="small">{t('home.ordersReadyBody')}</span>
+          </span>
+          <ChevronRight size={18} className="c-3" />
         </Link>
-      </div>
-    </div>
-  )
-}
 
-function Stat({ n, label, color }: { n: number; label: string; color: string }) {
-  return (
-    <div className="row" style={{ gap: 6, alignItems: 'baseline' }}>
-      <span className="num-lg" style={{ color }}>
-        {n}
-      </span>
-      <span className="caption">{label}</span>
-    </div>
-  )
-}
+        <Link to="/app/branches" className="sheet row lift nudge" style={{ padding: 16 }} data-testid="branches-link">
+          <span className="metric__icon" style={{ margin: 0, width: 38, height: 38, borderRadius: 12 }}>
+            <Building2 size={18} />
+          </span>
+          <span className="stack grow" style={{ gap: 1 }}>
+            <span style={{ fontWeight: 700 }}>{t('branches.title')}</span>
+            <span className="small">{t('shops.count', { n: shops.length })} · {t('branches.subtitle')}</span>
+          </span>
+          <ChevronRight size={18} className="c-3" />
+        </Link>
 
-export function AttentionRow({ change }: { change: ItemChange }) {
-  const navigate = useNavigate()
-  const meta = STATUS_META[change.status]
-  return (
-    <div
-      className="item-row item-row--link"
-      role="button"
-      tabIndex={0}
-      onClick={() => navigate(`/item/${encodeURIComponent(change.sku)}`)}
-      onKeyDown={(e) => e.key === 'Enter' && navigate(`/item/${encodeURIComponent(change.sku)}`)}
-    >
-      <span className="item-row__bar" style={{ background: STATUS_COLOR[change.status] }} />
-      <div className="stack" style={{ gap: 1, minWidth: 0 }}>
-        <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{change.name}</span>
-        <span className="caption" style={{ color: STATUS_COLOR[change.status] }}>
-          {meta.label}
-        </span>
-      </div>
-      <div className="item-row__nums">
-        {change.before !== null && <span className="num-sm faint">{change.before}</span>}
-        {change.before !== null && <Icon name="arrowRight" size={12} className="faint" />}
-        <span className="num-md" style={{ color: STATUS_COLOR[change.status] }}>
-          {change.after}
-        </span>
+        <section className="section">
+          <div className="section__head">
+            <h2 className="h3">{t('shelves.walks')}</h2>
+            <span className="small">{walks.length}</span>
+          </div>
+          <div className="sheet" style={{ padding: '2px 16px' }}>
+            <div className="rows">
+              {[...walks]
+                .reverse()
+                .slice(0, 4)
+                .map((w) => {
+                  const items = w.photos.flatMap((p) => p.shelves).flatMap((s) => s.items).reduce((a, i) => a + i.count, 0)
+                  return (
+                    <Link key={w.id} to={`/app/shelves/${w.id}`} className="walk-row nudge" data-testid="walk-row">
+                      <span className="stack" style={{ gap: 2 }}>
+                        <span style={{ fontWeight: 600 }}>
+                          {capitalize(formatShortDate(w.created_at, locale))} · {formatTime(w.created_at, locale)}
+                        </span>
+                        <span className="walk-row__meta">
+                          {t('common.photos', { n: w.photos.length })} · {t('common.items', { n: items })}
+                        </span>
+                      </span>
+                      <ChevronRight size={18} className="c-3" />
+                    </Link>
+                  )
+                })}
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   )

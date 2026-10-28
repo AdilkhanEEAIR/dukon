@@ -1,56 +1,150 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { AppRoutes, Shell } from '../App'
-import { ToastProvider } from '../components/Toast'
-import { diff, health, jsonResponse, mockFetch, walk } from '../test/fixtures'
+import { AppRoutes, Providers } from '../App'
+import { DEVICE, demoHealth, diff, happyRoutes, jsonResponse, mockFetch, mineOverview, seedSettings, shops, walk, type Routes } from '../test/fixtures'
 
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <ToastProvider>
-        <Shell>
-          <AppRoutes />
-        </Shell>
-      </ToastProvider>
+      <Providers poll={false}>
+        <AppRoutes />
+      </Providers>
     </MemoryRouter>,
   )
 }
 
-const happyRoutes = {
-  '/health': () => jsonResponse(health),
-  '/walks?source=live': () => jsonResponse([]),
-  '/walks?source=demo': () => jsonResponse([walk]),
-  '/walks/demo-tue/diff': () => jsonResponse(diff),
-  '/walks/demo-tue': () => jsonResponse(walk),
-}
+const noShops: Routes = { ...happyRoutes, '/shops': (init) => (init?.method === 'POST' ? happyRoutes['/shops'](init) : jsonResponse([])) }
 
-describe('Главная', () => {
-  it('скелетон → данные: потери, счётчики, список внимания', async () => {
-    mockFetch(happyRoutes)
+describe('Лендинг', () => {
+  it('по умолчанию английский; без магазина кнопка ведёт в онбординг; автор в подвале', async () => {
+    mockFetch(noShops)
     renderAt('/')
-    expect(screen.getByTestId('skeleton')).toBeInTheDocument()
-    expect(await screen.findByTestId('total-items')).toHaveTextContent('16')
-    expect(screen.getByTestId('loss-card')).toHaveTextContent('765 сом')
-    expect(screen.getByText('Молоко Эльвест 6% 1 л')).toBeInTheDocument()
-    expect(screen.queryByText('Масло сливочное 180 г')).not.toBeInTheDocument() // ok-позиции не в «внимании»
+    expect(screen.getByTestId('landing')).toBeInTheDocument()
+    expect(screen.getByText(/Walk the shelves/)).toBeInTheDocument()
+    expect(screen.getByTestId('shelf-art')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByRole('link', { name: /Open the app/ })[0]).toHaveAttribute('href', '/app/onboarding'))
+    const footer = screen.getByTestId('landing-footer')
+    expect(within(footer).getByRole('link', { name: 'Made by Adilkhan' })).toHaveAttribute('href', 'https://github.com/AdilkhanEEAIR/dukon')
   })
 
-  it('пустое состояние, когда обходов нет', async () => {
-    mockFetch({ ...happyRoutes, '/walks?source=demo': () => jsonResponse([]) })
+  it('с магазином кнопка ведёт в приложение', async () => {
+    seedSettings()
+    mockFetch(happyRoutes)
     renderAt('/')
+    await waitFor(() => expect(screen.getAllByRole('link', { name: /Открыть приложение/ })[0]).toHaveAttribute('href', '/app'))
+  })
+
+  it('«Посмотреть демо» работает без магазина', async () => {
+    mockFetch(noShops)
+    renderAt('/app/shelves?demo=1')
+    expect(await screen.findByTestId('changes-list')).toHaveTextContent('Coca-Cola 1 л')
+  })
+})
+
+describe('Онбординг', () => {
+  it('/app без магазинов → онбординг; пустое имя — ошибка; магазин создаётся на сервере', async () => {
+    const fn = mockFetch(noShops)
+    renderAt('/app')
+    const form = await screen.findByTestId('onboarding')
+    expect(screen.getByPlaceholderText('e.g. Shop on Chuy')).toBeInTheDocument()
+    expect(screen.getByText('Enter your shop name the way customers know it.')).toBeInTheDocument()
+    await userEvent.click(within(form).getByTestId('onboarding-submit'))
+    expect(screen.getByRole('alert')).toHaveTextContent(/name/i)
+    await userEvent.type(screen.getByLabelText('Shop name'), 'Shop on Chuy')
+    await userEvent.type(screen.getByLabelText('Address'), 'Chuy 120')
+    await userEvent.click(within(form).getByTestId('onboarding-submit'))
+    expect(await screen.findByTestId('home')).toBeInTheDocument()
+    const post = (fn.mock.calls as [string, RequestInit][]).find(([u, i]) => u.endsWith('/shops') && i?.method === 'POST')!
+    expect(JSON.parse(String(post[1].body))).toEqual({ name: 'Shop on Chuy', address: 'Chuy 120' })
+    expect((post[1].headers as Record<string, string>)['x-device-id']).toMatch(/^[A-Za-z0-9_-]{8,64}$/)
+  })
+
+  it('язык, валюта и тема применяются сразу; доллар первый в списке', async () => {
+    mockFetch(noShops)
+    renderAt('/app/onboarding')
+    await screen.findByTestId('onboarding')
+    await userEvent.click(screen.getByTestId('onboarding-currency'))
+    expect(screen.getAllByRole('option')[0]).toHaveTextContent('USD')
+    await userEvent.click(screen.getByRole('option', { name: /KGS/ }))
+    await userEvent.click(screen.getByTestId('onboarding-lang'))
+    await userEvent.click(screen.getByRole('option', { name: 'Кыргызча' }))
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Дүкөнүңүздү жөндөңүз')
+    await userEvent.click(screen.getByRole('radio', { name: /Караңгы/ }))
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(JSON.parse(localStorage.getItem('dukon.settings')!)).toMatchObject({ currency: 'KGS', locale: 'ky', theme: 'dark' })
+    expect(screen.queryByRole('radio', { name: /System|систем/i })).not.toBeInTheDocument()
+  })
+
+  it('ошибка сервера при создании показана с причиной', async () => {
+    mockFetch({ ...noShops, '/shops': (init) => (init?.method === 'POST' ? jsonResponse({ detail: { code: 'too_many_shops' } }, 409) : jsonResponse([])) })
+    renderAt('/app/onboarding')
+    await userEvent.type(await screen.findByLabelText('Shop name'), 'X')
+    await userEvent.click(screen.getByTestId('onboarding-submit'))
+    expect(await screen.findByTestId('onboarding-error')).toHaveAttribute('data-code', 'too_many_shops')
+  })
+
+  it('у кого магазин уже есть — онбординг уводит на главную', async () => {
+    seedSettings()
+    mockFetch(happyRoutes)
+    renderAt('/app/onboarding')
+    expect(await screen.findByTestId('home')).toBeInTheDocument()
+  })
+
+  it('сервер недоступен и магазинов в кэше нет → понятная ошибка с повтором', async () => {
+    mockFetch({ ...happyRoutes, '/shops': () => new Response('x', { status: 503 }) })
+    renderAt('/app')
+    expect(await screen.findByTestId('error-state')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Try again/ })).toBeInTheDocument()
+  })
+})
+
+describe('Главная', () => {
+  beforeEach(() => seedSettings())
+
+  it('скелетон → ценник потерь, метрики, график, внимание, обходы, филиалы', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app')
+    expect(await screen.findByTestId('home')).toBeInTheDocument()
+    expect(await screen.findByTestId('total-items')).toHaveTextContent('16')
+    expect(screen.getByTestId('loss-tag')).toHaveTextContent(/765/)
+    expect(screen.getByTestId('loss-tag')).toHaveTextContent(/в месяц/)
+    expect(screen.getAllByText('Молоко Эльвест 6% 1 л').length).toBeGreaterThan(0)
+    expect(screen.getAllByTestId('walk-row')).toHaveLength(2)
+    expect(screen.getByTestId('shop-name')).toHaveTextContent('Дүкөн на Чуй')
+    expect(screen.getByTestId('branches-link')).toHaveTextContent('2 магазина')
+    await waitFor(() => expect(screen.getByTestId('stock-chart')).toHaveAttribute('data-ready', 'true'))
+  })
+
+  it('в долларах сумма пересчитывается, а сомы остаются подписью', async () => {
+    seedSettings({ currency: 'USD' })
+    mockFetch(happyRoutes)
+    renderAt('/app')
+    const tag = await screen.findByTestId('loss-tag')
+    expect(tag).toHaveTextContent('$')
+    expect(tag).toHaveTextContent('765 сом по ценникам')
+  })
+
+  it('пустое состояние без обходов', async () => {
+    mockFetch({ ...happyRoutes, '/walks?source=demo': () => jsonResponse([]) })
+    renderAt('/app')
     expect(await screen.findByTestId('empty-state')).toHaveTextContent('Обходов пока нет')
   })
 
-  it('ошибка сети с кнопкой повтора, повтор грузит данные', async () => {
+  it('ошибка сети → повтор → данные', async () => {
     let fail = true
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      if (fail) throw new TypeError('Failed to fetch')
-      const path = input.toString().replace(/^https?:\/\/[^/]+/, '')
-      const key = Object.keys(happyRoutes).find((k) => path === k || path.startsWith(k))!
-      return happyRoutes[key as keyof typeof happyRoutes]()
-    }))
-    renderAt('/')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = input.toString().replace(/^https?:\/\/[^/]+/, '')
+        if (path.startsWith('/health')) return happyRoutes['/health']()
+        if (path.startsWith('/shops')) return happyRoutes['/shops'](init)
+        if (fail) throw new TypeError('Failed to fetch')
+        const key = Object.keys(happyRoutes).find((k) => path === k) ?? Object.keys(happyRoutes).filter((k) => path.startsWith(k)).sort((a, b) => b.length - a.length)[0]
+        return happyRoutes[key](init)
+      }),
+    )
+    renderAt('/app')
     const err = await screen.findByTestId('error-state')
     expect(err).toHaveAttribute('data-code', 'network')
     fail = false
@@ -58,108 +152,302 @@ describe('Главная', () => {
     expect(await screen.findByTestId('total-items')).toBeInTheDocument()
   })
 
-  it('живые обходы важнее демо', async () => {
-    const live = { ...walk, id: 'live-1', source: 'live' as const, label: 'Мой обход' }
-    mockFetch({ ...happyRoutes, '/walks?source=live': () => jsonResponse([live]), '/walks/live-1/diff': () => jsonResponse(diff) })
-    renderAt('/')
-    expect(await screen.findByText('Мой обход')).toBeInTheDocument()
-    expect(screen.getByText('Живой обход')).toBeInTheDocument()
+  it('свой обход магазина помечен', async () => {
+    const live = { ...walk, id: 'live-1', source: 'live' as const, shop_id: 'shop-1' }
+    mockFetch({ ...happyRoutes, '/walks?source=live&shop_id=shop-1': () => jsonResponse([live]), '/walks/live-1/diff': () => jsonResponse(diff) })
+    renderAt('/app')
+    expect(await screen.findByText('Ваш обход')).toBeInTheDocument()
   })
 })
 
-describe('Отчёт', () => {
-  it('фильтр по статусу меняет список', async () => {
+describe('Полки и товар', () => {
+  beforeEach(() => seedSettings())
+
+  it('фильтры меняют список, шторка показывает прогноз и кладёт в черновик', async () => {
     mockFetch(happyRoutes)
-    renderAt('/report/demo-tue')
+    renderAt('/app/shelves')
     const list = await screen.findByTestId('changes-list')
     expect(list).toHaveTextContent('Coca-Cola 1 л')
     await userEvent.click(screen.getByRole('tab', { name: /ценник/i }))
     expect(screen.getByTestId('changes-list')).toHaveTextContent('Кукуруза')
     expect(screen.getByTestId('changes-list')).not.toHaveTextContent('Coca-Cola')
     await userEvent.click(screen.getByRole('tab', { name: /^нет/i }))
-    expect(screen.getByTestId('changes-list')).toHaveTextContent('Молоко')
+    await userEvent.click(within(screen.getByTestId('changes-list')).getByText('Молоко Эльвест 6% 1 л'))
+    const drawer = await screen.findByTestId('drawer')
+    expect(within(drawer).getByTestId('after-count')).toHaveTextContent('0')
+    expect(within(drawer).getByTestId('forecast-caption')).toHaveTextContent('Уже закончился')
+    await userEvent.click(within(drawer).getByTestId('to-draft'))
+    expect(await screen.findByRole('status')).toHaveTextContent(/черновик/i)
   })
 
-  it('404 обхода → понятная ошибка', async () => {
-    mockFetch({ ...happyRoutes, '/walks/zzz': () => jsonResponse({ detail: { code: 'not_found', message: 'нет' } }, 404) })
-    renderAt('/report/zzz')
+  it('обход по id: история того же магазина', async () => {
+    const fn = mockFetch(happyRoutes)
+    renderAt('/app/shelves/demo-sun')
+    expect(await screen.findByText(/первый обход/i)).toBeInTheDocument()
+    expect((fn.mock.calls as [string][]).some(([u]) => u.includes('/walks?source=demo&shop_id=demo-chuy'))).toBe(true)
+  })
+
+  it('не найденный обход → понятная ошибка', async () => {
+    mockFetch({ ...happyRoutes, '/walks/zzz': () => jsonResponse({ detail: { code: 'not_found' } }, 404), '/walks/zzz/diff': () => jsonResponse({ detail: { code: 'not_found' } }, 404) })
+    renderAt('/app/shelves/zzz')
     expect(await screen.findByTestId('error-state')).toHaveAttribute('data-code', 'not_found')
   })
 
-  it('клик по строке ведёт на карточку товара', async () => {
+  it('товар по ссылке и «не найден»', async () => {
     mockFetch(happyRoutes)
-    renderAt('/report/demo-tue')
-    await userEvent.click(await screen.findByText('Молоко Эльвест 6% 1 л'))
-    expect(await screen.findByTestId('after-count')).toHaveTextContent('0')
-    expect(screen.getByText(/765 сом/)).toBeInTheDocument()
-  })
-})
-
-describe('Карточка товара', () => {
-  it('не найденный товар → пустое состояние', async () => {
-    mockFetch(happyRoutes)
-    renderAt('/item/nope')
+    const { unmount } = renderAt(`/app/item/${encodeURIComponent('coca cola 1 л')}`)
+    expect(await screen.findByTestId('forecast-caption')).toHaveTextContent(/Закончится примерно через/)
+    unmount()
+    renderAt('/app/item/nope')
     expect(await screen.findByTestId('empty-state')).toHaveTextContent('Товар не найден')
   })
 })
 
 describe('Обход', () => {
-  it('кнопка заблокирована без фото, разблокируется после выбора', async () => {
+  beforeEach(() => seedSettings())
+
+  it('кнопка заблокирована без фото; HEIC — плашка; убрать — удаляет', async () => {
     mockFetch(happyRoutes)
-    renderAt('/scan')
+    renderAt('/app/scan')
     const submit = await screen.findByTestId('submit')
     expect(submit).toBeDisabled()
-    const file = new File(['abc'], 'shelf.jpg', { type: 'image/jpeg' })
-    await userEvent.upload(screen.getByTestId('file-input'), file)
-    expect(screen.getByTestId('thumbs')).toBeInTheDocument()
+    await userEvent.upload(screen.getByTestId('file-input'), new File(['a'], 'IMG_7423.HEIC', { type: '' }))
+    expect(screen.getByText('HEIC')).toBeInTheDocument()
     expect(submit).toBeEnabled()
-    expect(submit).toHaveTextContent('Разобрать 1 фото')
+    await userEvent.click(screen.getByRole('button', { name: /убрать/i }))
+    expect(screen.queryByTestId('thumbs')).not.toBeInTheDocument()
   })
 
-  it('живой режим выключен → предупреждение и кнопка заблокирована', async () => {
-    mockFetch({ ...happyRoutes, '/health': () => jsonResponse({ ...health, live_enabled: false }) })
-    renderAt('/scan')
+  it('демо-режим на сервере → предупреждение, кнопка заблокирована', async () => {
+    mockFetch({ ...happyRoutes, '/health': () => jsonResponse(demoHealth) })
+    renderAt('/app/scan')
     expect(await screen.findByText(/живой режим выключен/i)).toBeInTheDocument()
     await userEvent.upload(screen.getByTestId('file-input'), new File(['a'], 'a.jpg', { type: 'image/jpeg' }))
     expect(screen.getByTestId('submit')).toBeDisabled()
   })
 
-  it('ошибка сервера показывается с причиной и кнопкой «Ещё раз»', async () => {
-    mockFetch({ ...happyRoutes, '/walks/analyze': () => jsonResponse({ detail: { code: 'rate_limited', message: 'x' } }, 429) })
-    renderAt('/scan')
+  it('ошибки: лимит с повтором, биллинг без повтора', async () => {
+    let code = 'rate_limited'
+    mockFetch({ ...happyRoutes, '/walks/analyze': () => jsonResponse({ detail: { code, retryable: code === 'rate_limited' } }, code === 'rate_limited' ? 429 : 502) })
+    renderAt('/app/scan')
     await screen.findByTestId('submit')
     await userEvent.upload(screen.getByTestId('file-input'), new File(['a'], 'a.jpg', { type: 'image/jpeg' }))
     await userEvent.click(screen.getByTestId('submit'))
-    const err = await screen.findByTestId('inline-error')
+    let err = await screen.findByTestId('inline-error')
     expect(err).toHaveAttribute('data-code', 'rate_limited')
-    expect(screen.getByText(/слишком много обходов/i)).toBeInTheDocument()
+    expect(within(err).getByRole('button', { name: /повторить/i })).toBeInTheDocument()
+    code = 'billing'
+    await userEvent.click(screen.getByTestId('submit'))
+    await waitFor(() => expect(screen.getByTestId('inline-error')).toHaveAttribute('data-code', 'billing'))
+    err = screen.getByTestId('inline-error')
+    expect(within(err).queryByRole('button')).not.toBeInTheDocument()
   })
 
-  it('успех: конвейер, тост, переход на отчёт', async () => {
-    const live = { ...walk, id: 'live-9', source: 'live' as const }
-    mockFetch({ ...happyRoutes, '/walks/analyze': () => jsonResponse(live, 201), '/walks/live-9/diff': () => jsonResponse(diff), '/walks/live-9': () => jsonResponse(live) })
-    renderAt('/scan')
+  it('успех: обход уходит в текущий магазин, затем отчёт', async () => {
+    const live = { ...walk, id: 'live-9', source: 'live' as const, shop_id: 'shop-1' }
+    const fn = mockFetch({ ...happyRoutes, '/walks/analyze': () => jsonResponse(live, 201), '/walks/live-9/diff': () => jsonResponse(diff), '/walks/live-9': () => jsonResponse(live) })
+    renderAt('/app/scan')
     await screen.findByTestId('submit')
+    await userEvent.type(screen.getByLabelText(/демо-код/i), 'dukon-judge')
     await userEvent.upload(screen.getByTestId('file-input'), new File(['a'], 'a.jpg', { type: 'image/jpeg' }))
     await userEvent.click(screen.getByTestId('submit'))
     await waitFor(() => expect(screen.getByTestId('changes-list')).toBeInTheDocument(), { timeout: 3000 })
+    const call = (fn.mock.calls as [string, RequestInit][]).find(([u]) => u.includes('/walks/analyze'))!
+    expect(call[0]).toContain('shop_id=shop-1')
+    expect((call[1].headers as Record<string, string>)['x-device-id']).toBe(DEVICE)
   })
 })
 
-describe('Оболочка', () => {
-  it('офлайн-баннер появляется при потере сети', async () => {
+describe('Филиалы', () => {
+  beforeEach(() => seedSettings())
+
+  it('без своих обходов — демо-сеть: сумма, график, три филиала', async () => {
     mockFetch(happyRoutes)
-    renderAt('/orders')
-    expect(screen.queryByTestId('offline-banner')).not.toBeInTheDocument()
+    renderAt('/app/branches')
+    expect(await screen.findByText(/показываем демо-сеть/)).toBeInTheDocument()
+    expect(screen.getAllByTestId('branch-row')).toHaveLength(3)
+    // 765 + 1248 + 0 сом в день по трём филиалам
+    expect(screen.getByTestId('branches-total').getAttribute('aria-label')).toMatch(/^2\s013\sсом$/)
+    expect(screen.getByText(/Больше всего теряет: Manas 47/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('branches-chart')).toHaveAttribute('data-ready', 'true'))
+  })
+
+  it('свои филиалы с обходами — без демо, можно сделать текущим', async () => {
+    const mine = [{ ...mineOverview[0], walks: 1, last_walk_id: 'live-1', last_walk_at: '2026-10-28T00:00:00Z', loss_per_day: 100 }, mineOverview[1]]
+    mockFetch({ ...happyRoutes, '/branches/overview?scope=mine': () => jsonResponse(mine) })
+    renderAt('/app/branches')
+    const rows = await screen.findAllByTestId('branch-row')
+    expect(screen.queryByText(/демо-сеть/)).not.toBeInTheDocument()
+    expect(rows[1]).toHaveTextContent('Обходов ещё нет')
+    await userEvent.click(within(rows[1]).getByRole('button', { name: 'Сделать текущим' }))
+    expect(await screen.findByTestId('home')).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('dukon.currentShop')!)).toBe('shop-2')
+  })
+})
+
+describe('Заказы', () => {
+  beforeEach(() => seedSettings())
+  it('строки из рекомендаций, степпер меняет итог', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app/orders')
+    const lines = await screen.findAllByTestId('order-line')
+    expect(lines).toHaveLength(2)
+    const total = screen.getByTestId('order-total')
+    const before = total.textContent
+    await userEvent.click(within(lines[0]).getByRole('button', { name: '+' }))
+    expect(total.textContent).not.toBe(before)
+    await userEvent.click(within(lines[0]).getByRole('button', { name: '−' }))
+    expect(total.textContent).toBe(before)
+  })
+  it('пусто, когда заказывать нечего', async () => {
+    mockFetch({ ...happyRoutes, '/walks/demo-tue/diff': () => jsonResponse({ ...diff, changes: diff.changes.map((c) => ({ ...c, suggested_order: 0 })) }) })
+    renderAt('/app/orders')
+    expect(await screen.findByTestId('empty-state')).toHaveTextContent('Заказы собираются')
+  })
+})
+
+describe('Настройки', () => {
+  beforeEach(() => seedSettings())
+
+  it('филиалы: добавить, переименовать, удалить в два нажатия', async () => {
+    const calls: string[] = []
+    mockFetch({
+      ...happyRoutes,
+      '/shops/shop-2': (init) => {
+        calls.push(init?.method ?? 'GET')
+        return init?.method === 'DELETE' ? jsonResponse({ deleted: 'shop-2' }) : jsonResponse({ ...shops[1], name: 'Манас 2' })
+      },
+    })
+    renderAt('/app/settings')
+    const section = await screen.findByTestId('shops-section')
+    await waitFor(() => expect(within(section).getAllByTestId('shop-row')).toHaveLength(2))
+
+    await userEvent.type(within(section).getByTestId('new-shop-name'), 'Ош базар')
+    await userEvent.click(within(section).getByTestId('add-shop'))
+    await waitFor(() => expect(within(section).getAllByTestId('shop-row')).toHaveLength(3))
+
+    const row2 = within(section).getAllByTestId('shop-row')[1]
+    await userEvent.click(within(row2).getByRole('button', { name: 'Изменить' }))
+    const edit = within(section).getByTestId('shop-edit')
+    const nameInput = within(edit).getByLabelText('Название магазина')
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'Манас 2')
+    await userEvent.click(within(edit).getByRole('button', { name: 'Сохранить' }))
+    expect(await within(section).findByText('Манас 2')).toBeInTheDocument()
+
+    const row = within(section).getAllByTestId('shop-row')[1]
+    await userEvent.click(within(row).getByTestId('delete-shop'))
+    await userEvent.click(within(row).getByTestId('confirm-delete'))
+    await waitFor(() => expect(within(section).getAllByTestId('shop-row')).toHaveLength(2))
+    expect(calls).toEqual(['PATCH', 'DELETE'])
+  })
+
+  it('последний магазин удалить нельзя', async () => {
+    mockFetch({ ...happyRoutes, '/shops': () => jsonResponse([shops[0]]) })
+    renderAt('/app/settings')
+    const row = await screen.findByTestId('shop-row')
+    await userEvent.click(within(row).getByTestId('delete-shop'))
+    expect(await screen.findByRole('status')).toHaveTextContent('Должен остаться хотя бы один магазин')
+  })
+
+  it('язык и валюта через выпадающие списки, тема — светлая/тёмная', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app/settings')
+    await userEvent.click(await screen.findByTestId('settings-lang'))
+    await userEvent.click(screen.getByRole('option', { name: 'Français' }))
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Réglages')
+    await userEvent.click(screen.getByTestId('settings-currency'))
+    await userEvent.click(screen.getByRole('option', { name: /EUR/ }))
+    expect(JSON.parse(localStorage.getItem('dukon.settings')!).currency).toBe('EUR')
+    expect(screen.getAllByRole('radio')).toHaveLength(2)
+  })
+
+  it('код устройства: копировать, привязать чужой, неверный код отклоняется', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app/settings')
+    expect(await screen.findByTestId('device-code')).toHaveTextContent(DEVICE)
+    await userEvent.click(screen.getByRole('button', { name: 'Копировать' }))
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(DEVICE)
+    await userEvent.type(screen.getByLabelText('Код с другого устройства'), 'bad')
+    await userEvent.click(screen.getByTestId('link-device'))
+    expect(await screen.findByText(/от 8 до 64/)).toBeInTheDocument()
+    await userEvent.clear(screen.getByLabelText('Код с другого устройства'))
+    await userEvent.type(screen.getByLabelText('Код с другого устройства'), 'device-other-9999')
+    await userEvent.click(screen.getByTestId('link-device'))
+    await waitFor(() => expect(screen.getByTestId('device-code')).toHaveTextContent('device-other-9999'))
+    expect(localStorage.getItem('dukon.device')).toBe('device-other-9999')
+  })
+
+  it('сброс уводит в онбординг и отвязывает устройство', async () => {
+    mockFetch({ ...happyRoutes, '/shops': (init) => (init?.method === 'POST' ? happyRoutes['/shops'](init) : jsonResponse(localStorage.getItem('dukon.device') === DEVICE ? shops : [])) })
+    renderAt('/app/settings')
+    await userEvent.click(await screen.findByTestId('reset'))
+    expect(await screen.findByTestId('onboarding')).toBeInTheDocument()
+    expect(localStorage.getItem('dukon.device')).not.toBe(DEVICE)
+  })
+
+  it('ссылки «О Dukon» и автор', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app/settings')
+    expect((await screen.findAllByRole('link', { name: /О Dukon/ }))[0]).toHaveAttribute('href', '/')
+    expect(screen.getAllByRole('link', { name: 'Сделал Адилхан' }).length).toBeGreaterThan(0)
+  })
+})
+
+describe('Уведомления, система, агент, оболочка', () => {
+  beforeEach(() => seedSettings())
+
+  it('уведомления: список, прочитать все, переход к товару', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app/notifications')
+    await waitFor(() => expect(screen.getAllByTestId('notif')).toHaveLength(4))
+    expect(screen.getAllByTestId('notif')[0]).toHaveClass('notif--unread')
+    await userEvent.click(screen.getByTestId('mark-all'))
+    await waitFor(() => expect(screen.queryByTestId('mark-all')).not.toBeInTheDocument())
+    await userEvent.click(screen.getAllByTestId('notif')[0])
+    expect(await screen.findByTestId('item-page')).toBeInTheDocument()
+  })
+
+  it('система: бюджет и провайдер; без сервера — ошибка', async () => {
+    mockFetch(happyRoutes)
+    const { unmount } = renderAt('/app/system')
+    expect(await screen.findByTestId('calls-today')).toHaveTextContent('2 / 60')
+    unmount()
+    localStorage.setItem('dukon.shopsCache', JSON.stringify(shops))
+    mockFetch({ ...happyRoutes, '/health': () => new Response('x', { status: 503 }) })
+    renderAt('/app/system')
+    expect(await screen.findByText(/сервер недоступен/i)).toBeInTheDocument()
+  })
+
+  it('агент: правила', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app/agent')
+    expect(await screen.findByText(/Агент ещё не подключён/)).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')).toHaveLength(4)
+  })
+
+  it('офлайн-баннер при потере сети', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app/orders')
+    await screen.findByTestId('orders')
     Object.defineProperty(navigator, 'onLine', { value: false, configurable: true })
     window.dispatchEvent(new Event('offline'))
     expect(await screen.findByTestId('offline-banner')).toBeInTheDocument()
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
   })
 
-  it('неизвестный адрес → 404', async () => {
+  it('неизвестный адрес внутри приложения → 404', async () => {
     mockFetch(happyRoutes)
-    renderAt('/whatever')
-    expect(await screen.findByText('Такой страницы нет')).toBeInTheDocument()
+    renderAt('/app/whatever')
+    expect(await screen.findByTestId('not-found')).toBeInTheDocument()
+  })
+
+  it('навигация: филиалы в рейле, агент в таббаре, ни одной точки у пилюль', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app')
+    await screen.findByTestId('home')
+    expect(screen.getAllByRole('link', { name: /Филиалы/ }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('link', { name: /Агент/ }).length).toBeGreaterThan(0)
+    expect(document.querySelector('.pill__dot, .notif__unread, .step__dot')).toBeNull()
   })
 })
