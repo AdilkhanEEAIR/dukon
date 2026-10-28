@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { Providers } from '../App'
-import { DEVICE, demoHealth, diff, happyRoutes, jsonResponse, mockFetch, seedSettings, shops, walk } from '../test/fixtures'
+import { DEVICE, demoHealth, diff, happyRoutes, health, jsonResponse, liveRoutes, mockFetch, seedSettings, shops, walk } from '../test/fixtures'
 import { useLatest } from './data'
 import { useMode } from './mode'
 import { useNotifications } from './notifications'
@@ -31,7 +31,8 @@ function Probe() {
       </span>
       <button onClick={() => update({ theme: 'dark' })}>dark</button>
       <button onClick={() => update({ locale: 'ky' })}>ky</button>
-      <button onClick={() => mode.setForcedDemo(true)}>force</button>
+      <button onClick={() => mode.setView('demo')}>force</button>
+      <button onClick={() => mode.setView('live')}>tolive</button>
       <button onClick={notif.markAll}>readall</button>
       <button onClick={() => notif.markRead(notif.items[0]?.id ?? '')}>readone</button>
       <button onClick={() => sh.select('shop-2')}>select2</button>
@@ -94,7 +95,7 @@ describe('SettingsProvider', () => {
 
 describe('ModeProvider', () => {
   it('live с сервера', async () => {
-    mockFetch(happyRoutes)
+    mockFetch(liveRoutes)
     renderProbe()
     await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('ready:live:-'))
   })
@@ -111,12 +112,47 @@ describe('ModeProvider', () => {
     await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('down:demo:network'))
   })
 
-  it('пользователь может принудительно выбрать демо', async () => {
-    mockFetch(happyRoutes)
+  it('кнопка в углу: демо и обратно, выбор запоминается на устройстве', async () => {
+    mockFetch(liveRoutes)
     renderProbe()
     await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('ready:live'))
     await userEvent.click(screen.getByText('force'))
     expect(screen.getByTestId('mode')).toHaveTextContent('ready:demo:manual')
+    expect(JSON.parse(localStorage.getItem('dukon.settings')!).dataMode).toBe('demo')
+    await userEvent.click(screen.getByText('tolive'))
+    expect(screen.getByTestId('mode')).toHaveTextContent('ready:live:-')
+    // при живом сервере возврат — снова «автоматически»: кончатся кредиты — само уйдёт в демо
+    expect(JSON.parse(localStorage.getItem('dukon.settings')!).dataMode).toBe('auto')
+  })
+
+  it('без кредитов свои данные всё равно можно открыть — новые обходы на паузе', async () => {
+    mockFetch(happyRoutes)
+    renderProbe()
+    await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('ready:demo:no_api_key'))
+    await userEvent.click(screen.getByText('tolive'))
+    expect(screen.getByTestId('mode')).toHaveTextContent('ready:live:no_api_key')
+    expect(JSON.parse(localStorage.getItem('dukon.settings')!).dataMode).toBe('live')
+  })
+
+  it('запрос упал по сети — сервер перепроверяется сразу, приложение уходит в демо из снимка', async () => {
+    seedSettings()
+    let healthCalls = 0
+    mockFetch({
+      ...liveRoutes,
+      '/health': () => {
+        healthCalls += 1
+        if (healthCalls === 1) return jsonResponse(health)
+        throw new TypeError('Failed to fetch')
+      },
+      '/walks?source=live': () => {
+        throw new TypeError('Failed to fetch')
+      },
+    })
+    renderProbe()
+    await waitFor(() => expect(screen.getByTestId('mode')).toHaveTextContent('down:demo:network'))
+    expect(healthCalls).toBeGreaterThanOrEqual(2)
+    // демо-обходы пришли из встроенного снимка, а не с сервера
+    await waitFor(() => expect(screen.getByTestId('latest')).toHaveTextContent('success:demo-tue'))
   })
 })
 
@@ -172,7 +208,7 @@ describe('ShopsProvider', () => {
 })
 
 describe('DataProvider + NotificationsProvider', () => {
-  it('без своих обходов показывает демо-филиал и выводит уведомления', async () => {
+  it('демо-режим: обходы демо-филиала и уведомления', async () => {
     seedSettings()
     mockFetch(happyRoutes)
     renderProbe()
@@ -181,20 +217,31 @@ describe('DataProvider + NotificationsProvider', () => {
     await waitFor(() => expect(screen.getByTestId('unread')).toHaveTextContent('4'))
   })
 
-  it('свой обход текущего магазина важнее демо', async () => {
+  it('живой режим: свой обход текущего магазина', async () => {
     seedSettings()
     const live = { ...walk, id: 'live-1', source: 'live' as const, shop_id: 'shop-1' }
-    mockFetch({ ...happyRoutes, '/walks?source=live&shop_id=shop-1': () => jsonResponse([live]), '/walks/live-1/diff': () => jsonResponse(diff) })
+    mockFetch({ ...liveRoutes, '/walks?source=live&shop_id=shop-1': () => jsonResponse([live]), '/walks/live-1/diff': () => jsonResponse(diff) })
     renderProbe()
     await waitFor(() => expect(screen.getByTestId('latest')).toHaveTextContent('success:live-1'))
+  })
+
+  it('живой режим без своих обходов — пусто, демо не подмешивается', async () => {
+    seedSettings()
+    const fn = mockFetch(liveRoutes)
+    renderProbe()
+    await waitFor(() => expect(screen.getByTestId('latest')).toHaveTextContent('success:none'))
+    const urls = (fn.mock.calls as [string][]).map(([u]) => u)
+    expect(urls.some((u) => u.includes('source=demo'))).toBe(false)
+    // уведомление только про живой режим, без слова «демо»
+    await waitFor(() => expect(screen.getByTestId('unread')).toHaveTextContent('1'))
   })
 
   it('смена магазина перезагружает данные', async () => {
     seedSettings()
     const live = { ...walk, id: 'live-2', source: 'live' as const, shop_id: 'shop-2' }
-    mockFetch({ ...happyRoutes, '/walks?source=live&shop_id=shop-2': () => jsonResponse([live]), '/walks/live-2/diff': () => jsonResponse(diff) })
+    mockFetch({ ...liveRoutes, '/walks?source=live&shop_id=shop-2': () => jsonResponse([live]), '/walks/live-2/diff': () => jsonResponse(diff) })
     renderProbe()
-    await waitFor(() => expect(screen.getByTestId('latest')).toHaveTextContent('success:demo-tue'))
+    await waitFor(() => expect(screen.getByTestId('latest')).toHaveTextContent('success:none'))
     await userEvent.click(screen.getByText('select2'))
     await waitFor(() => expect(screen.getByTestId('latest')).toHaveTextContent('success:live-2'))
   })

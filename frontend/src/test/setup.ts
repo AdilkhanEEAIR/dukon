@@ -3,18 +3,27 @@ import { afterEach, beforeEach, vi } from 'vitest'
 
 // ECharts рисует в настоящем браузере; в jsdom подменяем инициализацию и проверяем, что ему передали.
 // Массив вызовов лежит на globalThis: тесты читают его через chartOptions() из fixtures.
-const { chartCalls } = vi.hoisted(() => {
+const { chartCalls, fakeInit } = vi.hoisted(() => {
   const calls: { option: unknown }[] = []
   ;(globalThis as unknown as { __chartCalls: typeof calls }).__chartCalls = calls
-  return { chartCalls: calls }
+  const fakeInit = () => {
+    // Обработчики событий графика складываем рядом с опциями: тест может «кликнуть» по сектору кольца.
+    const handlers: Record<string, (p: unknown) => void> = {}
+    ;((globalThis as unknown as { __chartHandlers: Record<string, (p: unknown) => void>[] }).__chartHandlers ??= []).push(handlers)
+    return {
+      setOption: (option: unknown) => calls.push({ option }),
+      resize: () => {},
+      dispose: () => {},
+      on: (ev: string, fn: (p: unknown) => void) => {
+        handlers[ev] = fn
+      },
+      dispatchAction: () => {},
+    }
+  }
+  return { chartCalls: calls, fakeInit }
 })
-vi.mock('../components/charts/echarts', () => ({
-  init: () => ({
-    setOption: (option: unknown) => chartCalls.push({ option }),
-    resize: () => {},
-    dispose: () => {},
-  }),
-}))
+vi.mock('../components/charts/echarts', () => ({ init: fakeInit }))
+vi.mock('../components/charts/load', () => ({ loadECharts: async () => ({ init: fakeInit }) }))
 // Карта (MapLibre) в jsdom не рисуется — WebGL нет. Подменяем лёгкими классами: булавки — настоящие DOM-элементы
 // внутри контейнера, а вызовы (перелёты, рамки, смена стиля) записываются, чтобы тесты их проверяли.
 vi.mock('../components/map/maplib', () => {
@@ -23,15 +32,18 @@ vi.mock('../components/map/maplib', () => {
     container: HTMLElement
     handlers: Record<string, Handler[]> = {}
     zoom: number
-    style: string
+    style: unknown
+    styles: unknown[] = []
     flights: unknown[] = []
     fits: unknown[] = []
-    constructor(opts: { container: HTMLElement; zoom: number; style: string }) {
+    constructor(opts: { container: HTMLElement; zoom: number; style: unknown }) {
       this.container = opts.container
       this.zoom = opts.zoom
       this.style = opts.style
+      this.styles.push(opts.style)
       ;((globalThis as unknown as { __maps: FakeMap[] }).__maps ??= []).push(this)
-      queueMicrotask(() => this.fire('load'))
+      // __mapNoLoad: тест сам решает, загрузилась подложка или нет (для запасного стиля и ошибок).
+      if (!(globalThis as unknown as { __mapNoLoad?: boolean }).__mapNoLoad) queueMicrotask(() => this.fire('load'))
     }
     on(ev: string, fn: Handler) {
       ;(this.handlers[ev] ??= []).push(fn)
@@ -51,8 +63,9 @@ vi.mock('../components/map/maplib', () => {
     isStyleLoaded() {
       return true
     }
-    setStyle(style: string) {
+    setStyle(style: unknown) {
       this.style = style
+      this.styles.push(style)
     }
     flyTo(o: unknown) {
       this.flights.push(o)
@@ -119,10 +132,12 @@ Object.defineProperty(navigator, 'languages', { value: ['ru-RU'], configurable: 
 
 beforeEach(() => {
   chartCalls.length = 0
+  ;(globalThis as unknown as { __chartHandlers: unknown[] }).__chartHandlers = []
   localStorage.clear()
   document.documentElement.dataset.theme = ''
   delete document.documentElement.dataset.motion
   ;(globalThis as unknown as { __maps: unknown[] }).__maps = []
+  ;(globalThis as unknown as { __mapNoLoad?: boolean }).__mapNoLoad = false
 })
 
 afterEach(() => {

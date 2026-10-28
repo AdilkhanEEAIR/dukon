@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { AppRoutes, Providers } from '../App'
-import { DEVICE, demoHealth, diff, happyRoutes, jsonResponse, mockFetch, mineOverview, seedSettings, shops, walk, walkBefore, type Routes } from '../test/fixtures'
+import { DEVICE, demoHealth, diff, happyRoutes, health, jsonResponse, liveRoutes, mockFetch, mineOverview, seedSettings, shops, walk, walkBefore, type Routes } from '../test/fixtures'
 import { dayKey } from '../components/WalkCalendar'
 
 function renderAt(path: string) {
@@ -16,15 +16,31 @@ function renderAt(path: string) {
 }
 
 const noShops: Routes = { ...happyRoutes, '/shops': (init) => (init?.method === 'POST' ? happyRoutes['/shops'](init) : jsonResponse([])) }
+const noShopsLive: Routes = { ...noShops, '/health': () => jsonResponse(health) }
+const ownWalk = { ...walk, id: 'live-1', source: 'live' as const, shop_id: 'shop-1' }
+const ownRoutes: Routes = { ...liveRoutes, '/walks?source=live&shop_id=shop-1': () => jsonResponse([ownWalk]), '/walks/live-1/diff': () => jsonResponse(diff), '/walks/live-1': () => jsonResponse(ownWalk) }
+
+/** Сервер не отвечает вовсе: любой запрос падает по сети. */
+function serverDown() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    }),
+  )
+}
 
 describe('Лендинг', () => {
   it('по умолчанию английский; без магазина кнопка ведёт в онбординг; автор в подвале', async () => {
-    mockFetch(noShops)
+    mockFetch(noShopsLive)
     renderAt('/')
     expect(screen.getByTestId('landing')).toBeInTheDocument()
     expect(screen.getByText(/Walk the shelves/)).toBeInTheDocument()
     expect(screen.getByTestId('shelf-art')).toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByRole('link', { name: /Open the app/ })[0]).toHaveAttribute('href', '/app/onboarding'))
+    // живой сервер: вторая кнопка — «Как это работает», слова «демо» на первом экране нет
+    expect(screen.getByRole('button', { name: /How it works/ })).toBeInTheDocument()
+    expect(screen.queryByText(/See the demo/)).not.toBeInTheDocument()
     const footer = screen.getByTestId('landing-footer')
     expect(within(footer).getByRole('link', { name: 'Made by Adilkhan' })).toHaveAttribute('href', 'https://github.com/AdilkhanEEAIR/dukon')
   })
@@ -36,20 +52,39 @@ describe('Лендинг', () => {
     await waitFor(() => expect(screen.getAllByRole('link', { name: /Открыть приложение/ })[0]).toHaveAttribute('href', '/app'))
   })
 
-  it('«Посмотреть демо» работает без магазина', async () => {
+  it('без моделей на сервере — «Посмотреть демо», приложение открывается без магазина', async () => {
     mockFetch(noShops)
+    renderAt('/')
+    await waitFor(() => expect(screen.getByRole('link', { name: /See the demo/ })).toHaveAttribute('href', '/app/shelves?demo=1'))
+    expect(screen.getAllByRole('link', { name: /Open the app/ })[0]).toHaveAttribute('href', '/app')
+  })
+
+  it('ссылка ?demo=1 включает демо даже при живом сервере и без магазина', async () => {
+    mockFetch(noShopsLive)
     renderAt('/app/shelves?demo=1')
     // Без настроек интерфейс английский — и названия товаров тоже: «1 л» → «1 L», «Молоко Эльвест» → «Elvest milk»
     const list = await screen.findByTestId('changes-list')
     expect(list).toHaveTextContent('Coca-Cola 1 L')
     expect(list).toHaveTextContent('Elvest milk 6% 1 L')
     expect(list).not.toHaveTextContent('Молоко')
+    expect(JSON.parse(localStorage.getItem('dukon.settings')!).dataMode).toBe('demo')
+    expect(screen.getByTestId('data-switch')).toHaveAttribute('data-state', 'demo')
+  })
+})
+
+describe('Ссылка на демо без кредитов', () => {
+  it('?demo=1 на сервере без моделей показывает демо, но выбор не запоминает', async () => {
+    seedSettings()
+    mockFetch(happyRoutes)
+    renderAt('/app/shelves?demo=1')
+    expect(await screen.findByTestId('changes-list')).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('dukon.settings')!).dataMode).not.toBe('demo')
   })
 })
 
 describe('Онбординг', () => {
   it('/app без магазинов → онбординг; пустое имя — ошибка; магазин создаётся на сервере', async () => {
-    const fn = mockFetch(noShops)
+    const fn = mockFetch(noShopsLive)
     renderAt('/app')
     const form = await screen.findByTestId('onboarding')
     expect(screen.getByPlaceholderText('e.g. Shop on Chuy')).toBeInTheDocument()
@@ -96,11 +131,19 @@ describe('Онбординг', () => {
     expect(await screen.findByTestId('home')).toBeInTheDocument()
   })
 
-  it('сервер недоступен и магазинов в кэше нет → понятная ошибка с повтором', async () => {
-    mockFetch({ ...happyRoutes, '/shops': () => new Response('x', { status: 503 }) })
+  it('сервер отвечает, а магазины не грузятся и в кэше их нет → понятная ошибка с повтором', async () => {
+    mockFetch({ ...liveRoutes, '/shops': () => new Response('x', { status: 503 }) })
     renderAt('/app')
     expect(await screen.findByTestId('error-state')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Try again/ })).toBeInTheDocument()
+  })
+
+  it('сервер лежит целиком → демо из встроенного снимка вместо страницы ошибки', async () => {
+    serverDown()
+    renderAt('/app')
+    expect(await screen.findByTestId('loss-tag')).toBeInTheDocument()
+    expect(screen.queryByTestId('error-state')).not.toBeInTheDocument()
+    expect(screen.getByTestId('data-switch')).toHaveAttribute('data-state', 'down')
   })
 })
 
@@ -116,8 +159,9 @@ describe('Главная', () => {
     expect(screen.getByTestId('loss-tag')).toHaveTextContent(/в месяц/)
     expect(screen.getAllByText('Молоко Эльвест 6% 1 л').length).toBeGreaterThan(0)
     expect(screen.getAllByTestId('walk-row')).toHaveLength(2)
-    expect(screen.getByTestId('shop-name')).toHaveTextContent('Дүкөн на Чуй')
-    expect(screen.getByTestId('branches-link')).toHaveTextContent('2 магазина')
+    // демо-режим: в шапке и в ссылке на филиалы — демо-сеть, свои магазины не подменяются
+    expect(screen.getByTestId('shop-name')).toHaveTextContent('Chuy 120')
+    expect(screen.getByTestId('branches-link')).toHaveTextContent('3 магазина')
     await waitFor(() => expect(screen.getByTestId('stock-chart')).toHaveAttribute('data-ready', 'true'))
   })
 
@@ -136,17 +180,52 @@ describe('Главная', () => {
     expect(await screen.findByTestId('empty-state')).toHaveTextContent('Обходов пока нет')
   })
 
+  it('живой режим без своих обходов — приглашение к первому обходу, демо не подмешивается', async () => {
+    mockFetch(liveRoutes)
+    const { container } = renderAt('/app')
+    const hero = await screen.findByTestId('first-walk')
+    expect(hero).toHaveTextContent('Обходов пока нет')
+    expect(within(hero).getByTestId('shelf-art')).toBeInTheDocument()
+    expect(within(hero).getByRole('link', { name: /Первый обход/ })).toHaveAttribute('href', '/app/scan')
+    // кнопки «Новый обход» приглашают пульсом
+    expect(container.querySelector('.app')).toHaveAttribute('data-invite', 'true')
+    expect(screen.queryByTestId('loss-tag')).not.toBeInTheDocument()
+  })
+
+  it('живой режим: свой обход, а слова «демо» на экране нет', async () => {
+    mockFetch(ownRoutes)
+    const { container } = renderAt('/app')
+    expect(await screen.findByText('Ваш обход')).toBeInTheDocument()
+    expect(screen.getByTestId('shop-name')).toHaveTextContent('Дүкөн на Чуй')
+    expect(screen.getByTestId('branches-link')).toHaveTextContent('2 магазина')
+    expect(container.querySelector('main')!.textContent).not.toMatch(/демо/i)
+    expect(container.querySelector('aside')!.textContent).not.toMatch(/демо/i)
+    expect(screen.getByTestId('rail-mode')).toHaveTextContent('Живой')
+    // кнопка в углу — тихий кружок, надпись «Показать демо» только для наведения и чтения с экрана
+    expect(screen.getByTestId('data-switch')).toHaveAttribute('data-state', 'live')
+  })
+
+  it('живой счётчик потерь за сегодня тикает на барабанах', async () => {
+    mockFetch(ownRoutes)
+    renderAt('/app')
+    const meter = await screen.findByTestId('loss-meter')
+    expect(meter).toHaveTextContent('Сегодня уже потеряно')
+    expect(within(meter).getByText('потеряно')).toHaveClass('loss-word')
+    const first = screen.getByTestId('loss-meter-value').textContent
+    await waitFor(() => expect(screen.getByTestId('loss-meter-value').textContent).not.toBe(first), { timeout: 2500 })
+  })
+
   it('ошибка сети → повтор → данные', async () => {
     let fail = true
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = input.toString().replace(/^https?:\/\/[^/]+/, '')
-        if (path.startsWith('/health')) return happyRoutes['/health']()
-        if (path.startsWith('/shops')) return happyRoutes['/shops'](init)
+        if (path.startsWith('/health')) return ownRoutes['/health']()
+        if (path.startsWith('/shops')) return ownRoutes['/shops'](init)
         if (fail) throw new TypeError('Failed to fetch')
-        const key = Object.keys(happyRoutes).find((k) => path === k) ?? Object.keys(happyRoutes).filter((k) => path.startsWith(k)).sort((a, b) => b.length - a.length)[0]
-        return happyRoutes[key](init)
+        const key = Object.keys(ownRoutes).find((k) => path === k) ?? Object.keys(ownRoutes).filter((k) => path.startsWith(k)).sort((a, b) => b.length - a.length)[0]
+        return ownRoutes[key](init)
       }),
     )
     renderAt('/app')
@@ -158,8 +237,7 @@ describe('Главная', () => {
   })
 
   it('свой обход магазина помечен', async () => {
-    const live = { ...walk, id: 'live-1', source: 'live' as const, shop_id: 'shop-1' }
-    mockFetch({ ...happyRoutes, '/walks?source=live&shop_id=shop-1': () => jsonResponse([live]), '/walks/live-1/diff': () => jsonResponse(diff) })
+    mockFetch(ownRoutes)
     renderAt('/app')
     expect(await screen.findByText('Ваш обход')).toBeInTheDocument()
   })
@@ -175,7 +253,9 @@ describe('Полки и товар', () => {
     expect(list).toHaveTextContent('Coca-Cola 1 л')
     await userEvent.click(screen.getByRole('tab', { name: /ценник/i }))
     expect(screen.getByTestId('changes-list')).toHaveTextContent('Кукуруза')
-    expect(screen.getByTestId('changes-list')).not.toHaveTextContent('Coca-Cola')
+    // Строка уходит с анимацией: даже при skipAnimations AnimatePresence убирает её на следующем кадре,
+    // а не сразу после клика. На медленной машине кадр не успевает — поэтому ждём, а не проверяем мгновенно.
+    await waitFor(() => expect(screen.getByTestId('changes-list')).not.toHaveTextContent('Coca-Cola'))
     await userEvent.click(screen.getByRole('tab', { name: /^нет/i }))
     await userEvent.click(within(screen.getByTestId('changes-list')).getByText('Молоко Эльвест 6% 1 л'))
     const drawer = await screen.findByTestId('drawer')
@@ -244,7 +324,7 @@ describe('Обход', () => {
   beforeEach(() => seedSettings())
 
   it('кнопка заблокирована без фото; HEIC — плашка; убрать — удаляет', async () => {
-    mockFetch(happyRoutes)
+    mockFetch(liveRoutes)
     renderAt('/app/scan')
     const submit = await screen.findByTestId('submit')
     expect(submit).toBeDisabled()
@@ -265,7 +345,7 @@ describe('Обход', () => {
 
   it('ошибки: лимит с повтором, биллинг без повтора', async () => {
     let code = 'rate_limited'
-    mockFetch({ ...happyRoutes, '/walks/analyze': () => jsonResponse({ detail: { code, retryable: code === 'rate_limited' } }, code === 'rate_limited' ? 429 : 502) })
+    mockFetch({ ...liveRoutes, '/walks/analyze': () => jsonResponse({ detail: { code, retryable: code === 'rate_limited' } }, code === 'rate_limited' ? 429 : 502) })
     renderAt('/app/scan')
     await screen.findByTestId('submit')
     await userEvent.upload(screen.getByTestId('file-input'), new File(['a'], 'a.jpg', { type: 'image/jpeg' }))
@@ -282,10 +362,12 @@ describe('Обход', () => {
 
   it('успех: обход уходит в текущий магазин, затем отчёт', async () => {
     const live = { ...walk, id: 'live-9', source: 'live' as const, shop_id: 'shop-1' }
-    const fn = mockFetch({ ...happyRoutes, '/walks/analyze': () => jsonResponse(live, 201), '/walks/live-9/diff': () => jsonResponse(diff), '/walks/live-9': () => jsonResponse(live) })
-    renderAt('/app/scan')
+    const fn = mockFetch({ ...liveRoutes, '/walks/analyze': () => jsonResponse(live, 201), '/walks/live-9/diff': () => jsonResponse(diff), '/walks/live-9': () => jsonResponse(live) })
+    const { container } = renderAt('/app/scan')
     await screen.findByTestId('submit')
-    await userEvent.type(screen.getByLabelText(/демо-код/i), 'dukon-judge')
+    // в живом режиме ни «демо-кода», ни «показать демо-результат»
+    expect(container.querySelector('main')!.textContent).not.toMatch(/демо/i)
+    await userEvent.type(screen.getByLabelText(/код доступа/i), 'dukon-judge')
     await userEvent.upload(screen.getByTestId('file-input'), new File(['a'], 'a.jpg', { type: 'image/jpeg' }))
     await userEvent.click(screen.getByTestId('submit'))
     await waitFor(() => expect(screen.getByTestId('changes-list')).toBeInTheDocument(), { timeout: 3000 })
@@ -293,15 +375,37 @@ describe('Обход', () => {
     expect(call[0]).toContain('shop_id=shop-1')
     expect((call[1].headers as Record<string, string>)['x-device-id']).toBe(DEVICE)
   })
+
+  it('обход из демо-режима возвращает приложение к своим данным', async () => {
+    seedSettings({ dataMode: 'demo' })
+    const live = { ...walk, id: 'live-9', source: 'live' as const, shop_id: 'shop-1' }
+    mockFetch({ ...liveRoutes, '/walks/analyze': () => jsonResponse(live, 201), '/walks/live-9/diff': () => jsonResponse(diff), '/walks/live-9': () => jsonResponse(live) })
+    renderAt('/app/scan')
+    expect(await screen.findByTestId('scan-from-demo')).toHaveTextContent('Дүкөн на Чуй')
+    await userEvent.upload(screen.getByTestId('file-input'), new File(['a'], 'a.jpg', { type: 'image/jpeg' }))
+    await userEvent.click(screen.getByTestId('submit'))
+    await waitFor(() => expect(screen.getByTestId('changes-list')).toBeInTheDocument(), { timeout: 3000 })
+    expect(JSON.parse(localStorage.getItem('dukon.settings')!).dataMode).toBe('auto')
+    await waitFor(() => expect(screen.getByTestId('data-switch')).toHaveAttribute('data-state', 'live'))
+  })
+
+  it('без своего магазина обход не начинается — сначала настроить магазин', async () => {
+    localStorage.removeItem('dukon.shopsCache')
+    mockFetch(noShops)
+    renderAt('/app/scan')
+    const empty = await screen.findByTestId('empty-state')
+    expect(empty).toHaveTextContent('Сначала настройте магазин')
+    expect(within(empty).getByRole('link', { name: /Настроить магазин/ })).toHaveAttribute('href', '/app/onboarding')
+  })
 })
 
 describe('Филиалы', () => {
   beforeEach(() => seedSettings())
 
-  it('без своих обходов — демо-сеть: сумма, график, три филиала', async () => {
+  it('демо-режим — демо-сеть: сумма, график, три филиала', async () => {
     mockFetch(happyRoutes)
     renderAt('/app/branches')
-    expect(await screen.findByText(/показываем демо-сеть/)).toBeInTheDocument()
+    expect(await screen.findByText(/демо-сеть из трёх филиалов/)).toBeInTheDocument()
     expect(screen.getAllByTestId('branch-row')).toHaveLength(3)
     // 765 + 1248 + 0 сом в день по трём филиалам
     // сумма в сомах и рядом — в долларах по курсу НБКР
@@ -315,7 +419,7 @@ describe('Филиалы', () => {
 
   it('свои филиалы с обходами — без демо, можно сделать текущим', async () => {
     const mine = [{ ...mineOverview[0], walks: 1, last_walk_id: 'live-1', last_walk_at: '2026-10-28T00:00:00Z', loss_per_day: 100 }, mineOverview[1]]
-    mockFetch({ ...happyRoutes, '/branches/overview?scope=mine': () => jsonResponse(mine) })
+    mockFetch({ ...liveRoutes, '/branches/overview?scope=mine': () => jsonResponse(mine) })
     renderAt('/app/branches')
     const rows = await screen.findAllByTestId('branch-row')
     expect(screen.queryByText(/демо-сеть/)).not.toBeInTheDocument()
@@ -323,6 +427,16 @@ describe('Филиалы', () => {
     await userEvent.click(within(rows[1]).getByRole('button', { name: 'Сделать текущим' }))
     expect(await screen.findByTestId('home')).toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem('dukon.currentShop')!)).toBe('shop-2')
+  })
+
+  it('живой режим без обходов — только свои филиалы, демо-сеть не подставляется', async () => {
+    const fn = mockFetch(liveRoutes)
+    const { container } = renderAt('/app/branches')
+    const rows = await screen.findAllByTestId('branch-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveTextContent('Дүкөн на Чуй')
+    expect(container.querySelector('main')!.textContent).not.toMatch(/демо/i)
+    expect((fn.mock.calls as [string][]).some(([u]) => u.includes('scope=demo'))).toBe(false)
   })
 })
 
@@ -402,8 +516,8 @@ describe('Настройки', () => {
     await userEvent.click(screen.getByTestId('settings-currency'))
     await userEvent.click(screen.getByRole('option', { name: /EUR/ }))
     expect(JSON.parse(localStorage.getItem('dukon.settings')!).currency).toBe('EUR')
-    // тема: светлая/тёмная; анимации: как в системе/все/спокойные
-    expect(screen.getAllByRole('radio')).toHaveLength(5)
+    // тема: светлая/тёмная; анимации: как в системе/все/спокойные; данные: автоматически/мои/демо
+    expect(screen.getAllByRole('radio')).toHaveLength(8)
   })
 
   it('анимации: «как в системе» при системном «меньше движения» — спокойные, «Все» включает полные', async () => {
@@ -467,14 +581,16 @@ describe('Уведомления, система, агент, оболочка',
   })
 
   it('система: бюджет и провайдер; без сервера — ошибка', async () => {
-    mockFetch(happyRoutes)
+    mockFetch(liveRoutes)
     const { unmount } = renderAt('/app/system')
     expect(await screen.findByTestId('calls-today')).toHaveTextContent('2 / 60')
     unmount()
     localStorage.setItem('dukon.shopsCache', JSON.stringify(shops))
     mockFetch({ ...happyRoutes, '/health': () => new Response('x', { status: 503 }) })
     renderAt('/app/system')
-    expect(await screen.findByText(/сервер недоступен/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /сервер недоступен/i })).toBeInTheDocument()
+    // и кнопка в углу честно говорит то же самое, нажатие — проверить ещё раз
+    expect(screen.getByTestId('data-switch')).toHaveAttribute('data-state', 'down')
   })
 
   it('агент: правила', async () => {

@@ -1,4 +1,5 @@
-import { ApiError, ERROR_CODES, api, errorCode } from './client'
+import { ApiError, ERROR_CODES, api, errorCode, onServerFailure, setServerDown } from './client'
+import { demoRoute, shiftDates } from '../demo/offline'
 import { jsonResponse, mockFetch } from '../test/fixtures'
 
 describe('api', () => {
@@ -75,5 +76,68 @@ describe('api', () => {
     expect(errorCode(new Error('?'))).toEqual({ code: 'unknown', status: 0, retryable: true })
     expect(ERROR_CODES).toContain('rate_limited')
     expect(ERROR_CODES).toEqual(expect.arrayContaining(['device_required', 'too_many_shops', 'shop_not_found', 'validation']))
+  })
+})
+
+describe('запасной демо-набор, когда сервер лежит', () => {
+  afterEach(() => setServerDown(false))
+
+  it('разбирает только демо-запросы: свои магазины и живые обходы офлайн не подменяются', () => {
+    expect(demoRoute('/walks?source=demo&shop_id=demo-osh')).toEqual({ kind: 'walks', shopId: 'demo-osh' })
+    expect(demoRoute('/walks?source=demo')).toEqual({ kind: 'walks', shopId: null })
+    expect(demoRoute('/walks/demo-tue')).toEqual({ kind: 'walk', id: 'demo-tue' })
+    expect(demoRoute('/walks/demo-tue/diff')).toEqual({ kind: 'diff', id: 'demo-tue' })
+    expect(demoRoute('/shops/demo')).toEqual({ kind: 'shops' })
+    expect(demoRoute('/branches/overview?scope=demo')).toEqual({ kind: 'overview' })
+    expect(demoRoute('/walks?source=live&shop_id=shop-1')).toBeNull()
+    expect(demoRoute('/walks/live-abc')).toBeNull()
+    expect(demoRoute('/branches/overview?scope=mine')).toBeNull()
+    expect(demoRoute('/shops')).toBeNull()
+  })
+
+  it('сдвигает даты снимка, будто демо-обходы прошли только что', () => {
+    const shifted = shiftDates({ created_at: '2026-10-01T00:00:00.000Z', nested: [{ last_walk_at: '2026-10-01T06:00:00.000Z', label: 'x' }] }, 86_400_000)
+    expect(shifted.created_at).toBe('2026-10-02T00:00:00.000Z')
+    expect(shifted.nested[0].last_walk_at).toBe('2026-10-02T06:00:00.000Z')
+    expect(shifted.nested[0].label).toBe('x')
+  })
+
+  it('сеть упала — демо-обходы приходят из снимка, а свои по-прежнему падают с ошибкой', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    const walks = await api.walks('demo', 'demo-chuy')
+    expect(walks.map((w) => w.id)).toEqual(['demo-sun', 'demo-tue'])
+    // даты свежие: последний демо-обход — не старше суток
+    expect(Date.now() - Date.parse(walks[1].created_at)).toBeLessThan(86_400_000)
+    const diff = await api.diff('demo-tue')
+    expect(diff.loss_per_day).toBeGreaterThan(0)
+    expect((await api.demoShops()).map((s) => s.id)).toEqual(['demo-chuy', 'demo-manas', 'demo-osh'])
+    expect(await api.overview('demo')).toHaveLength(3)
+    await expect(api.walks('live', 'shop-1')).rejects.toMatchObject({ code: 'network' })
+  })
+
+  it('хостинг отвечает 502/503 на демо-чтение — тоже снимок', async () => {
+    mockFetch({ '/walks/demo-sun': () => new Response('bad gateway', { status: 502 }), '/walks/demo-tue': () => new Response('sleeping', { status: 503 }) })
+    expect((await api.walk('demo-sun')).id).toBe('demo-sun')
+    expect((await api.walk('demo-tue')).id).toBe('demo-tue')
+  })
+
+  it('когда известно, что сервер лежит, демо-запросы даже не идут в сеть', async () => {
+    const fn = mockFetch({})
+    setServerDown(true)
+    expect((await api.walks('demo', 'demo-manas')).map((w) => w.id)).toEqual(['demo-manas-1', 'demo-manas-2'])
+    expect(fn).not.toHaveBeenCalled()
+  })
+
+  it('падение по сети сообщается подписчикам — кроме фоновой проверки /health', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    const cb = vi.fn()
+    const off = onServerFailure(cb)
+    await api.health().catch(() => {})
+    expect(cb).not.toHaveBeenCalled()
+    await api.shops('device-x-0001').catch(() => {})
+    expect(cb).toHaveBeenCalledTimes(1)
+    off()
+    await api.shops('device-x-0001').catch(() => {})
+    expect(cb).toHaveBeenCalledTimes(1)
   })
 })

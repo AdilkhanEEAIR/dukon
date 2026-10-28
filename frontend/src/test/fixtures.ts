@@ -126,7 +126,7 @@ export const demoOverview: BranchSummary[] = [
 /** Настройки устройства для тестов: русский и сомы, чтобы суммы в проверках читались как «765 сом». */
 export const SETTINGS = { locale: 'ru', currency: 'KGS', theme: 'light', demoKey: '' }
 
-export function seedSettings(over: Partial<typeof SETTINGS> = {}, opts: { currentShop?: string } = {}) {
+export function seedSettings(over: Partial<typeof SETTINGS> & { dataMode?: 'auto' | 'live' | 'demo'; motion?: string } = {}, opts: { currentShop?: string } = {}) {
   localStorage.setItem('dukon.settings', JSON.stringify({ ...SETTINGS, ...over }))
   localStorage.setItem('dukon.device', DEVICE)
   if (opts.currentShop) localStorage.setItem('dukon.currentShop', JSON.stringify(opts.currentShop))
@@ -138,8 +138,12 @@ export function jsonResponse(body: unknown, status = 200): Response {
 
 export type Routes = Record<string, (init?: RequestInit) => Response | Promise<Response>>
 
+export const demoShops: Shop[] = demoOverview.map((r) => r.shop)
+
+/** Сервер без ключа моделей: приложение показывает демо-сеть. На этом наборе держится большинство тестов страниц. */
 export const happyRoutes: Routes = {
-  '/health': () => jsonResponse(health),
+  '/health': () => jsonResponse(demoHealth),
+  '/shops/demo': () => jsonResponse(demoShops),
   '/shops': (init) => {
     if (init?.method === 'POST') {
       const body = JSON.parse(String(init.body)) as { name: string; address?: string }
@@ -177,4 +181,12 @@ export function mockFetch(routes: Routes) {
 /** Опции, которые страницы передали в ECharts (в тестах график не рисуется, но данные проверяем). */
 export function chartOptions(): Record<string, unknown>[] {
   return ((globalThis as unknown as { __chartCalls?: { option: unknown }[] }).__chartCalls ?? []).map((c) => c.option as Record<string, unknown>)
+}
+
+/** Сервер с ключом и кредитами: живой режим, только свои данные. */
+export const liveRoutes: Routes = { ...happyRoutes, '/health': () => jsonResponse(health) }
+
+/** Обработчики событий каждого созданного графика — чтобы «кликнуть» по сектору кольца в тесте. */
+export function chartHandlers(): Record<string, (p: unknown) => void>[] {
+  return (globalThis as unknown as { __chartHandlers?: Record<string, (p: unknown) => void>[] }).__chartHandlers ?? []
 }

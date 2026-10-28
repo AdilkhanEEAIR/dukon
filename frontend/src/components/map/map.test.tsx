@@ -5,14 +5,17 @@ import { MemoryRouter } from 'react-router-dom'
 import type { GeoPoint } from '../../api/types'
 import { AppRoutes, Providers } from '../../App'
 import { geocode, hasPoint, shortAddress } from '../../lib/geo'
-import { happyRoutes, jsonResponse, mineOverview, mockFetch, seedSettings, type Routes } from '../../test/fixtures'
+import { happyRoutes, jsonResponse, liveRoutes, mineOverview, mockFetch, seedSettings, type Routes } from '../../test/fixtures'
 import { ThemeToggle } from '../Nav'
 import { BranchesMap, LocationPicker } from './GeoMap'
+import { readFileSync } from 'node:fs'
 
 interface FakeMap {
-  style: string
+  style: unknown
+  styles: unknown[]
   flights: { center: [number, number] }[]
   fits: unknown[]
+  fire: (ev: string, payload?: unknown) => void
 }
 const maps = () => (globalThis as unknown as { __maps: FakeMap[] }).__maps
 
@@ -73,7 +76,7 @@ describe('Карта филиалов', () => {
 
   it('свои филиалы без точек — приглашение отметить их в настройках', async () => {
     const mine = mineOverview.map((r, i) => ({ ...r, walks: 1, last_walk_id: `w${i}`, last_walk_at: '2026-10-28T00:00:00Z' }))
-    mockFetch({ ...happyRoutes, '/branches/overview?scope=mine': () => jsonResponse(mine) })
+    mockFetch({ ...liveRoutes, '/branches/overview?scope=mine': () => jsonResponse(mine) })
     renderAt('/app/branches')
     expect(await screen.findByTestId('map-empty')).toHaveTextContent('Ваших магазинов пока нет на карте')
     expect(screen.queryByTestId('branches-map')).not.toBeInTheDocument()
@@ -92,8 +95,74 @@ describe('Карта филиалов', () => {
     )
     await waitFor(() => expect(maps()).toHaveLength(1))
     expect(maps()[0].style).toMatch(/positron/)
-    await userEvent.click(screen.getByRole('switch'))
+    await userEvent.click(screen.getByTestId('theme-toggle'))
     await waitFor(() => expect(maps()[0].style).toMatch(/dark/))
+  })
+})
+
+describe('Карта не пропадает', () => {
+  beforeEach(() => seedSettings({ theme: 'light' }))
+  const pin = { id: 'a', point: { lat: 42.87, lng: 74.6 }, title: 'A', caption: '1 сом', tone: 'out' as const }
+  const one = () =>
+    render(
+      <MemoryRouter>
+        <Providers poll={false}>
+          <BranchesMap pins={[pin]} focus={null} onFocus={() => {}} />
+        </Providers>
+      </MemoryRouter>,
+    )
+
+  it('контейнер карты растянут на весь блок сильнее, чем стили MapLibre (иначе высота 0 и карты не видно)', () => {
+    // CSS в jsdom не применяется, поэтому сторожим само правило: без него карта рисуется в контейнер высотой 0.
+    const mapsCss = readFileSync('src/styles/maps.css', 'utf8')
+    expect(mapsCss).toMatch(/\.geo-map > \.geo-map__canvas\.maplibregl-map\s*\{[^}]*position: absolute[^}]*height: 100%/)
+  })
+
+  it('ошибка плитки после загрузки не закрывает карту', async () => {
+    mockFetch(happyRoutes)
+    one()
+    await waitFor(() => expect(maps()).toHaveLength(1))
+    await waitFor(() => expect(screen.queryByTestId('map-loading')).not.toBeInTheDocument())
+    maps()[0].fire('error', { sourceId: 'openmaptiles', tile: {}, error: new Error('404') })
+    maps()[0].fire('error', { error: new Error('glyphs') })
+    expect(screen.queryByTestId('map-error')).not.toBeInTheDocument()
+    expect(maps()[0].styles).toHaveLength(1)
+  })
+
+  it('векторный стиль не загрузился — растровая подложка; не загрузилась и она — честное сообщение', async () => {
+    ;(globalThis as unknown as { __mapNoLoad: boolean }).__mapNoLoad = true
+    mockFetch(happyRoutes)
+    one()
+    await waitFor(() => expect(maps()).toHaveLength(1))
+    expect(screen.getByTestId('map-loading')).toBeInTheDocument()
+    // ошибка плитки до загрузки — ещё не повод сдаваться
+    maps()[0].fire('error', { sourceId: 'openmaptiles', error: new Error('tile') })
+    expect(maps()[0].styles).toHaveLength(1)
+    maps()[0].fire('error', { error: new Error('style') })
+    const fallback = maps()[0].style as { sources: { carto: { tiles: string[] } } }
+    expect(fallback.sources.carto.tiles[0]).toMatch(/basemaps\.cartocdn\.com\/light_all/)
+    maps()[0].fire('error', { error: new Error('style again') })
+    expect(await screen.findByTestId('map-error')).toHaveTextContent('Карта не загрузилась')
+  })
+
+  it('запасная подложка сработала — карта показывается, тема меняет и её', async () => {
+    ;(globalThis as unknown as { __mapNoLoad: boolean }).__mapNoLoad = true
+    mockFetch(happyRoutes)
+    render(
+      <MemoryRouter>
+        <Providers poll={false}>
+          <BranchesMap pins={[pin]} focus={null} onFocus={() => {}} />
+          <ThemeToggle />
+        </Providers>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(maps()).toHaveLength(1))
+    maps()[0].fire('error', { error: new Error('style') })
+    maps()[0].fire('load')
+    await waitFor(() => expect(screen.queryByTestId('map-loading')).not.toBeInTheDocument())
+    expect(screen.queryByTestId('map-error')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('theme-toggle'))
+    await waitFor(() => expect(JSON.stringify(maps()[0].style)).toMatch(/dark_all/))
   })
 })
 
@@ -154,7 +223,9 @@ describe('Выбор точки магазина', () => {
     mockFetch(geoRoutes)
     host()
     await waitFor(() => expect(maps()).toHaveLength(1))
-    const m = maps()[0] as unknown as { fire: (ev: string, p: unknown) => void }
+    const m = maps()[0] as unknown as { fire: (ev: string, p: unknown) => void; handlers: Record<string, unknown[]> }
+    // обработчик клика вешается эффектом после создания карты — ждём его, иначе клик уходит в пустоту
+    await waitFor(() => expect(m.handlers.click?.length ?? 0).toBeGreaterThan(0))
     m.fire('click', { lngLat: { lat: 42.871234567, lng: 74.591234567 } })
     await waitFor(() => expect(screen.getByTestId('point')).toHaveTextContent('42.871235,74.591235'))
   })

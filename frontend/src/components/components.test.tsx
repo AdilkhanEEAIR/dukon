@@ -8,7 +8,7 @@ import { ApiError } from '../api/client'
 import { Providers } from '../App'
 import { I18nProvider } from '../i18n'
 import { KGS_PER_UNIT } from '../lib/currency'
-import { chartOptions, diff, happyRoutes, mockFetch, seedSettings } from '../test/fixtures'
+import { chartOptions, diff, happyRoutes, liveRoutes, mockFetch, seedSettings } from '../test/fixtures'
 import { Button, IconButton } from './Button'
 import { BranchesChart, ForecastChart, StockChart, forecastPoints } from './charts/Charts'
 import { CountUp } from './CountUp'
@@ -274,7 +274,7 @@ describe('Nav: тема, язык, режим, магазин, автор', () =
 
   it('LangSwitch: шесть языков, английский первым, выбор меняет язык', async () => {
     seedSettings({ locale: 'ru' })
-    mockFetch(happyRoutes)
+    mockFetch(liveRoutes)
     withApp(
       <>
         <LangSwitch />
@@ -292,7 +292,7 @@ describe('Nav: тема, язык, режим, магазин, автор', () =
 
   it('ShopSwitcher показывает филиалы и переключает текущий', async () => {
     seedSettings()
-    mockFetch(happyRoutes)
+    mockFetch(liveRoutes)
     withApp(<ShopSwitcher variant="rail" />)
     const trigger = await screen.findByTestId('shop-switcher-rail')
     expect(trigger).toHaveTextContent('Дүкөн на Чуй')
@@ -301,6 +301,20 @@ describe('Nav: тема, язык, режим, магазин, автор', () =
     await waitFor(() => expect(screen.getByTestId('shop-switcher-rail')).toHaveTextContent('Дүкөн Манас'))
     await userEvent.click(screen.getByTestId('shop-switcher-rail'))
     expect(screen.getByText('Добавить филиал')).toBeInTheDocument()
+  })
+
+  it('ShopSwitcher в демо: филиалы демо-сети, без «Добавить филиал»', async () => {
+    seedSettings()
+    mockFetch(happyRoutes)
+    withApp(<ShopSwitcher variant="rail" />)
+    const trigger = await screen.findByTestId('shop-switcher-rail')
+    expect(trigger).toHaveTextContent('Chuy 120')
+    await userEvent.click(trigger)
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Chuy 120'), expect.stringContaining('Manas 47'), expect.stringContaining('Osh Bazaar')])
+    expect(screen.queryByText('Добавить филиал')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('option', { name: /Manas 47/ }))
+    await waitFor(() => expect(screen.getByTestId('shop-switcher-rail')).toHaveTextContent('Manas 47'))
+    expect(JSON.parse(localStorage.getItem('dukon.demoShop')!)).toBe('demo-manas')
   })
 
   it('подпись автора ведёт на репозиторий и на лендинг', () => {
@@ -332,6 +346,8 @@ describe('Графики', () => {
     mockFetch(happyRoutes)
     withApp(<StockChart changes={diff.changes} />)
     await waitFor(() => expect(screen.getByTestId('stock-chart')).toHaveAttribute('data-ready', 'true'))
+    // data-ready ставится на кадр раньше, чем график получает опции — ждём сами опции.
+    await waitFor(() => expect(chartOptions().length).toBeGreaterThan(0))
     const opt = chartOptions().at(-1) as { series: { data: number[] }[] }
     expect(opt.series).toHaveLength(2)
     expect(opt.series[0].data).toContain(12)
@@ -358,6 +374,8 @@ describe('Графики', () => {
     mockFetch(happyRoutes)
     withApp(<ForecastChart history={[{ at: '2026-10-26T00:00:00Z', count: 12 }, { at: '2026-10-28T00:00:00Z', count: 2 }]} change={diff.changes[1]} caption="скоро" />)
     await waitFor(() => expect(screen.getByTestId('forecast-chart')).toHaveAttribute('data-ready', 'true'))
+    // data-ready ставится на кадр раньше, чем график получает опции — ждём сами опции.
+    await waitFor(() => expect(chartOptions().length).toBeGreaterThan(0))
     const opt = chartOptions().at(-1) as { series: unknown[] }
     expect(opt.series).toHaveLength(2)
     expect(screen.getByTestId('forecast-caption')).toHaveTextContent('скоро')
@@ -376,6 +394,8 @@ describe('Графики', () => {
       />,
     )
     await waitFor(() => expect(screen.getByTestId('branches-chart')).toHaveAttribute('data-ready', 'true'))
+    // data-ready ставится на кадр раньше, чем график получает опции — ждём сами опции.
+    await waitFor(() => expect(chartOptions().length).toBeGreaterThan(0))
     const opt = chartOptions().at(-1) as { yAxis: { data: string[] }; series: { itemStyle: { color: string }; data: unknown[] }[] }
     // Снизу вверх: самый большой столбец — наверху.
     expect(opt.yAxis.data).toEqual(['A', 'B'])
@@ -390,6 +410,8 @@ describe('Графики', () => {
     mockFetch(happyRoutes)
     withApp(<BranchesChart rows={[{ id: 'a', name: 'A', value: 0 }, { id: 'b', name: 'B', value: 50 }]} format={(v) => `${v}`} />)
     await waitFor(() => expect(screen.getByTestId('branches-chart')).toHaveAttribute('data-ready', 'true'))
+    // data-ready ставится на кадр раньше, чем график получает опции — ждём сами опции.
+    await waitFor(() => expect(chartOptions().length).toBeGreaterThan(0))
     const opt = chartOptions().at(-1) as { series: { data: unknown[] }[] }
     expect(opt.series[0].data[0]).toMatchObject({ value: 0, label: { fontWeight: 600 } })
     expect(opt.series[0].data[1]).toBe(50)
@@ -439,19 +461,24 @@ describe('Иконки товаров', () => {
 })
 
 describe('Переключатель темы', () => {
-  it('капсула-переключатель: роль switch, состояние и бегунок следуют теме', async () => {
+  it('кнопка из toggles.dev: состояние «нажата» и класс следуют теме, тема сохраняется', async () => {
     seedSettings({ theme: 'light' })
     mockFetch(happyRoutes)
     withApp(<ThemeToggle />)
-    const sw = screen.getByRole('switch')
-    expect(sw).toHaveAttribute('aria-checked', 'false')
-    expect(sw).toHaveAttribute('data-theme', 'light')
-    await userEvent.click(sw)
-    expect(sw).toHaveAttribute('aria-checked', 'true')
-    expect(sw).toHaveAttribute('data-theme', 'dark')
+    const btn = screen.getByTestId('theme-toggle')
+    expect(btn).toHaveAccessibleName('Сменить тему')
+    expect(btn).toHaveAttribute('aria-pressed', 'false')
+    expect(btn).toHaveClass('theme-toggle', 'light')
+    expect(btn.querySelector('svg')).not.toBeNull()
+    await userEvent.click(btn)
+    expect(btn).toHaveAttribute('aria-pressed', 'true')
+    expect(btn).toHaveClass('dark')
+    expect(btn).toHaveAttribute('data-theme', 'dark')
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(JSON.parse(localStorage.getItem('dukon.settings')!).theme).toBe('dark')
   })
 
-  it('знаки темы — тонкие линии в цвет текста, без заливки', () => {
+  it('значки в настройках — Sun и Moon из lucide, в цвет текста', () => {
     const { container } = render(
       <>
         <SunGlyph />
@@ -460,10 +487,9 @@ describe('Переключатель темы', () => {
     )
     const svgs = container.querySelectorAll('svg')
     expect(svgs).toHaveLength(2)
-    svgs.forEach((svg) => {
-      expect(svg).toHaveAttribute('fill', 'none')
-      expect(svg).toHaveAttribute('stroke', 'currentColor')
-    })
+    expect(svgs[0]).toHaveClass('lucide-sun')
+    expect(svgs[1]).toHaveClass('lucide-moon-star')
+    svgs.forEach((svg) => expect(svg).toHaveAttribute('stroke', 'currentColor'))
   })
 })
 
