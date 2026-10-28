@@ -336,8 +336,15 @@ describe('Графики', () => {
     expect(opt.series).toHaveLength(2)
     expect(opt.series[0].data).toContain(12)
     expect(opt.series[1].data).toContain(2)
-    await userEvent.click(screen.getByText('Показать таблицей'))
-    expect(screen.getByRole('table')).toHaveTextContent('Coca-Cola 1 л')
+    // «График | Таблица»: блоки сменяют друг друга — график уходит, таблица приходит, и обратно
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: 'Таблица' }))
+    expect(await screen.findByRole('table')).toHaveTextContent('Coca-Cola 1 л')
+    await waitFor(() => expect(screen.queryByTestId('stock-chart')).not.toBeInTheDocument())
+    expect(screen.getByRole('tab', { name: 'Таблица' })).toHaveAttribute('aria-selected', 'true')
+    await userEvent.click(screen.getByRole('tab', { name: 'График' }))
+    expect(await screen.findByTestId('stock-chart')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('table')).not.toBeInTheDocument())
   })
 
   it('прогноз до нуля по скорости продаж и подпись', async () => {

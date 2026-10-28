@@ -15,12 +15,103 @@ vi.mock('../components/charts/echarts', () => ({
     dispose: () => {},
   }),
 }))
-import { cleanup } from '@testing-library/react'
+// Карта (MapLibre) в jsdom не рисуется — WebGL нет. Подменяем лёгкими классами: булавки — настоящие DOM-элементы
+// внутри контейнера, а вызовы (перелёты, рамки, смена стиля) записываются, чтобы тесты их проверяли.
+vi.mock('../components/map/maplib', () => {
+  type Handler = (e?: unknown) => void
+  class FakeMap {
+    container: HTMLElement
+    handlers: Record<string, Handler[]> = {}
+    zoom: number
+    style: string
+    flights: unknown[] = []
+    fits: unknown[] = []
+    constructor(opts: { container: HTMLElement; zoom: number; style: string }) {
+      this.container = opts.container
+      this.zoom = opts.zoom
+      this.style = opts.style
+      ;((globalThis as unknown as { __maps: FakeMap[] }).__maps ??= []).push(this)
+      queueMicrotask(() => this.fire('load'))
+    }
+    on(ev: string, fn: Handler) {
+      ;(this.handlers[ev] ??= []).push(fn)
+      return this
+    }
+    off(ev: string, fn: Handler) {
+      this.handlers[ev] = (this.handlers[ev] ?? []).filter((f) => f !== fn)
+      return this
+    }
+    fire(ev: string, payload?: unknown) {
+      ;(this.handlers[ev] ?? []).forEach((f) => f(payload))
+    }
+    addControl() {
+      return this
+    }
+    remove() {}
+    isStyleLoaded() {
+      return true
+    }
+    setStyle(style: string) {
+      this.style = style
+    }
+    flyTo(o: unknown) {
+      this.flights.push(o)
+    }
+    fitBounds(b: unknown) {
+      this.fits.push(b)
+    }
+    getZoom() {
+      return this.zoom
+    }
+  }
+  class FakeMarker {
+    el: HTMLElement
+    ll: [number, number] = [0, 0]
+    handlers: Record<string, Handler> = {}
+    constructor(o: { element: HTMLElement }) {
+      this.el = o.element
+    }
+    setLngLat(ll: [number, number]) {
+      this.ll = ll
+      return this
+    }
+    addTo(map: FakeMap) {
+      map.container.appendChild(this.el)
+      return this
+    }
+    remove() {
+      this.el.remove()
+    }
+    getElement() {
+      return this.el
+    }
+    getLngLat() {
+      return { lng: this.ll[0], lat: this.ll[1] }
+    }
+    on(ev: string, fn: Handler) {
+      this.handlers[ev] = fn
+      return this
+    }
+  }
+  class LngLatBounds {
+    points: unknown[] = []
+    extend(p: unknown) {
+      this.points.push(p)
+      return this
+    }
+  }
+  class Control {}
+  return { Map: FakeMap, Marker: FakeMarker, LngLatBounds, NavigationControl: Control, AttributionControl: Control }
+})
+
+import { cleanup, configure } from '@testing-library/react'
 import { MotionGlobalConfig } from 'motion/react'
 
 // В jsdom нет кадров анимации: переходы страниц (AnimatePresence mode="wait") ждали бы конца ухода вечно.
 // skipAnimations завершает любую анимацию motion сразу — тесты проверяют логику, а не тайминги.
 MotionGlobalConfig.skipAnimations = true
+// Тесты страниц идут параллельно в нескольких процессах: под нагрузкой секунды на findBy* не всегда хватает.
+configure({ asyncUtilTimeout: 3000 })
 // jsdom не прокручивает окно и громко ругается на scrollTo — после смены страницы мы прокручиваем наверх.
 window.scrollTo = (() => {}) as typeof window.scrollTo
 
@@ -31,6 +122,7 @@ beforeEach(() => {
   localStorage.clear()
   document.documentElement.dataset.theme = ''
   delete document.documentElement.dataset.motion
+  ;(globalThis as unknown as { __maps: unknown[] }).__maps = []
 })
 
 afterEach(() => {

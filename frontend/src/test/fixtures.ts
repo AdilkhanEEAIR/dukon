@@ -118,9 +118,9 @@ const summary = (shop: Shop, over: Partial<BranchSummary> = {}): BranchSummary =
 
 export const mineOverview: BranchSummary[] = shops.map((s) => summary(s))
 export const demoOverview: BranchSummary[] = [
-  summary({ id: 'demo-chuy', name: 'Chuy 120', address: 'Chuy Ave 120', created_at: '', demo: true }, { walks: 2, last_walk_id: 'demo-tue', last_walk_at: '2026-10-28T02:12:00Z', loss_per_day: 765, out_of_stock: 1, low_stock: 1 }),
-  summary({ id: 'demo-manas', name: 'Manas 47', address: 'Manas Ave 47', created_at: '', demo: true }, { walks: 2, last_walk_id: 'demo-manas-2', last_walk_at: '2026-10-28T01:00:00Z', loss_per_day: 1248, out_of_stock: 2, low_stock: 2 }),
-  summary({ id: 'demo-osh', name: 'Osh Bazaar', address: '', created_at: '', demo: true }, { walks: 2, last_walk_id: 'demo-osh-2', last_walk_at: '2026-10-28T01:30:00Z' }),
+  summary({ id: 'demo-chuy', name: 'Chuy 120', address: 'Chuy Ave 120', created_at: '', demo: true, lat: 42.8766, lng: 74.6046 }, { walks: 2, last_walk_id: 'demo-tue', last_walk_at: '2026-10-28T02:12:00Z', loss_per_day: 765, out_of_stock: 1, low_stock: 1 }),
+  summary({ id: 'demo-manas', name: 'Manas 47', address: 'Manas Ave 47', created_at: '', demo: true, lat: 42.8665, lng: 74.5873 }, { walks: 2, last_walk_id: 'demo-manas-2', last_walk_at: '2026-10-28T01:00:00Z', loss_per_day: 1248, out_of_stock: 2, low_stock: 2 }),
+  summary({ id: 'demo-osh', name: 'Osh Bazaar', address: '', created_at: '', demo: true, lat: 42.8748, lng: 74.5694 }, { walks: 2, last_walk_id: 'demo-osh-2', last_walk_at: '2026-10-28T01:30:00Z' }),
 ]
 
 /** Настройки устройства для тестов: русский и сомы, чтобы суммы в проверках читались как «765 сом». */

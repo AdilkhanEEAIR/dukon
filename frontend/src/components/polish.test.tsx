@@ -164,11 +164,12 @@ describe('Отклик интерфейса', () => {
     expect(transitionKey('/app/orders')).toBe('/app/orders')
   })
 
-  it('знак Dukon: плитка, «D» и акцентная планка', () => {
+  it('знак Dukon — рисунок магазинчика, а не буква', () => {
     const { container } = render(<LogoMark size={40} />)
     const svg = container.querySelector('svg.logo-mark')!
     expect(svg).toHaveAttribute('width', '40')
-    expect(svg.querySelector('.logo-mark__tile')).not.toBeNull()
-    expect(svg.querySelector('.logo-mark__bar')).not.toBeNull()
+    expect(svg.querySelector('text')).toBeNull()
+    // козырёк, витрина, дверь — несколько фигур, а не один символ
+    expect(svg.querySelectorAll('rect, path, circle').length).toBeGreaterThan(10)
   })
 })
