@@ -1,0 +1,122 @@
+/* Токены Dukon. Одна тема «бумага и чернила», один акцент (бутылочно-зелёный), статусы — тоном, не заливкой.
+   Тёмная тема — графит с зелёным подтоном, не navy. Переключается атрибутом data-theme на <html>. */
+
+:root {
+  /* фон и поверхности */
+  --bg: #f1f3ee;
+  --bg-sunken: #e8ebe4;
+  --surface: #ffffff;
+  --surface-2: #f7f8f5;
+  --line: #dfe3da;
+  --line-strong: #c7cdc1;
+
+  /* текст */
+  --ink: #101512;
+  --ink-2: #4b544d;
+  --ink-3: #7b847d;
+  --ink-inverse: #f4f6f1;
+
+  /* единственный акцент */
+  --accent: #0e5b3f;
+  --accent-hover: #0b4a33;
+  --accent-ink: #ffffff;
+  --accent-soft: #dcefe4;
+  --accent-soft-ink: #0b4a33;
+
+  /* статусы: тон текста и мягкая подложка */
+  --out: #c2321f;
+  --out-soft: #fbe6e1;
+  --low: #9a6400;
+  --low-soft: #fbefd3;
+  --price: #2c4f8f;
+  --price-soft: #e2eafb;
+  --ok: #2f6b3a;
+  --ok-soft: #e1f0e3;
+
+  /* «ценник» — главный визуальный объект */
+  --tag-bg: #ffffff;
+  --tag-ink: #101512;
+  --tag-shadow: 0 1px 2px rgba(16, 21, 18, 0.06), 0 12px 32px -12px rgba(16, 21, 18, 0.25);
+
+  --shadow-pop: 0 1px 2px rgba(16, 21, 18, 0.08), 0 16px 40px -16px rgba(16, 21, 18, 0.3);
+  --focus: 0 0 0 3px rgba(14, 91, 63, 0.28);
+
+  /* геометрия */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-xl: 26px;
+  --gutter: 20px;
+  --content-max: 1120px;
+  --rail-w: 248px;
+  --tabbar-h: 68px;
+
+  /* типографика */
+  --font-ui: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Geologica', 'Manrope', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* движение: кривые из практики Ковальски, длительности < 300 мс для UI */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 140ms;
+  --dur-fast: 160ms;
+  --dur: 220ms;
+  --dur-slow: 320ms;
+}
+
+:root[data-theme='dark'] {
+  --bg: #0f1411;
+  --bg-sunken: #0a0e0c;
+  --surface: #161c18;
+  --surface-2: #1c241f;
+  --line: #27312b;
+  --line-strong: #364238;
+
+  --ink: #eef2ec;
+  --ink-2: #aab4ac;
+  --ink-3: #78837b;
+  --ink-inverse: #101512;
+
+  --accent: #78d7a6;
+  --accent-hover: #8fe3b6;
+  --accent-ink: #0b2318;
+  --accent-soft: #1a3328;
+  --accent-soft-ink: #a9e8c6;
+
+  --out: #ff7f6b;
+  --out-soft: #3a1f1a;
+  --low: #f2b94d;
+  --low-soft: #3a2d12;
+  --price: #93b4f5;
+  --price-soft: #1d2a44;
+  --ok: #8fd29c;
+  --ok-soft: #1c3322;
+
+  --tag-bg: #f4f6f1;
+  --tag-ink: #101512;
+  --tag-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -14px rgba(0, 0, 0, 0.7);
+
+  --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.5), 0 20px 48px -16px rgba(0, 0, 0, 0.8);
+  --focus: 0 0 0 3px rgba(120, 215, 166, 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-press: 0ms;
+    --dur-fast: 0ms;
+    --dur: 0ms;
+    --dur-slow: 0ms;
+  }
+}
+
+/* Цвета графиков: акцент внутри «полосы яркости» dataviz, тень — нейтральный серый. Проверено валидатором. */
+:root {
+  --chart-accent: #1c7a4f;
+  --chart-muted: #c3cabd;
+}
+:root[data-theme='dark'] {
+  --chart-accent: #3fa572;
+  --chart-muted: #56645a;
+}

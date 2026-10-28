@@ -1,0 +1,309 @@
+/* База: сброс, типографика, раскладка приложения. Компоненты — в components.css. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  font-feature-settings: 'ss01', 'cv11';
+  transition: background-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+img,
+svg {
+  display: block;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: var(--r-sm);
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent-soft-ink);
+}
+
+/* ---- типографика */
+.display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(34px, 6vw, 64px);
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+.h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(24px, 4vw, 34px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.h2 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+.h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 17px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+.lead {
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  max-width: 60ch;
+}
+.body-2 {
+  color: var(--ink-2);
+}
+.small {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+.num {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.num-xl {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(56px, 10vw, 88px);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.num-lg {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.num-md {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 20px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.num-sm {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.c-out { color: var(--out); }
+.c-low { color: var(--low); }
+.c-price { color: var(--price); }
+.c-ok { color: var(--ok); }
+.c-accent { color: var(--accent); }
+.c-2 { color: var(--ink-2); }
+.c-3 { color: var(--ink-3); }
+
+/* ---- раскладка приложения */
+.app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.app__main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 12px var(--gutter) calc(var(--tabbar-h) + 28px);
+}
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 6px;
+}
+.page-head__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.page-head__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.stack--tight { gap: 6px; }
+.row { display: flex; align-items: center; gap: 12px; }
+.row--between { justify-content: space-between; }
+.row--wrap { flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* ---- лист (панель) и строки */
+.sheet {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  transition: border-color var(--dur) var(--ease-out), background-color var(--dur) var(--ease-out);
+}
+.sheet--pad { padding: 18px; }
+.sheet--soft { background: var(--surface-2); border-color: transparent; }
+
+.rows > * + * {
+  border-top: 1px solid var(--line);
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 22px;
+}
+
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+}
+.metric-row > * + * {
+  border-left: 1px solid var(--line);
+  padding-left: 14px;
+}
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.metric__label {
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+/* ---- адаптив */
+@media (min-width: 768px) {
+  :root { --gutter: 32px; }
+  .app__main { padding-top: 24px; }
+  .two-col { grid-template-columns: 1.15fr 1fr; }
+}
+
+@media (min-width: 1024px) {
+  .app { flex-direction: row; }
+  .app__main {
+    padding: 36px 44px 60px;
+    max-width: calc(var(--content-max) + 88px);
+  }
+  .two-col { grid-template-columns: 1.5fr 1fr; gap: 28px; }
+  .page { gap: 28px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page { animation: none; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* переход между страницами через View Transitions — кроссфейд без скачка */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: var(--ease-out);
+}
+
+@media (min-width: 1024px) {
+  .hide-desktop { display: none !important; }
+}
+@media (max-width: 1023px) {
+  .hide-mobile { display: none !important; }
+}
