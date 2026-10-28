@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def utcnow() -> datetime:
@@ -92,6 +92,8 @@ class Walk(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
     label: str = ""
     source: Literal["live", "demo", "upload"] = "upload"
+    # Магазин (филиал), к которому относится обход. У старых обходов его нет — сравниваем их между собой.
+    shop_id: str | None = None
     photos: list[PhotoAnalysis] = Field(default_factory=list)
 
     @property
@@ -157,3 +159,52 @@ class DraftOrder(BaseModel):
     lines: list[OrderLine]
     total: float
     rule_notes: list[str] = Field(default_factory=list)
+
+
+class Shop(BaseModel):
+    """Магазин или филиал владельца. Владелец — устройство: аккаунтов нет, есть код устройства."""
+
+    id: str
+    name: str
+    address: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+    demo: bool = False
+
+
+def _clean(value: str | None) -> str | None:
+    # Пробелы по краям и двойные пробелы — частая опечатка с телефона; храним аккуратно.
+    return " ".join(value.split()) if isinstance(value, str) else value
+
+
+class ShopIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    address: str = Field(default="", max_length=120)
+
+    @field_validator("name", "address", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return _clean(v)
+
+
+class ShopPatch(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    address: str | None = Field(default=None, max_length=120)
+
+    @field_validator("name", "address", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return _clean(v)
+
+
+class BranchSummary(BaseModel):
+    """Сводка по филиалу для сравнения: где теряем больше всего."""
+
+    shop: Shop
+    walks: int
+    last_walk_id: str | None = None
+    last_walk_at: datetime | None = None
+    total_items: int = 0
+    out_of_stock: int = 0
+    low_stock: int = 0
+    price_mismatch: int = 0
+    loss_per_day: float = 0.0

@@ -9,8 +9,9 @@ def test_health_reports_mock_without_key(client):
 
 
 def test_demo_walks_seeded_on_startup(client):
-    walks = client.get("/walks", params={"source": "demo"}).json()
+    walks = client.get("/walks", params={"source": "demo", "shop_id": "demo-chuy"}).json()
     assert [w["id"] for w in walks] == ["demo-sun", "demo-tue"]
+    assert len(client.get("/walks", params={"source": "demo"}).json()) == 6
 
 
 def test_demo_diff_has_loss_and_statuses(client):
@@ -38,7 +39,8 @@ def test_unknown_walk_404(client):
 def test_seed_is_idempotent(client):
     client.post("/demo/seed")
     client.post("/demo/seed")
-    assert len(client.get("/walks", params={"source": "demo"}).json()) == 2
+    assert len(client.get("/walks", params={"source": "demo"}).json()) == 6
+    assert len(client.get("/shops/demo").json()) == 3
 
 
 def test_live_disabled_without_key(client, jpeg_bytes):
@@ -100,3 +102,28 @@ def test_clear_live_walks(live_client, jpeg_bytes):
     )
     assert live_client.delete("/walks", params={"source": "live"}).json()["deleted"] == 1
     assert live_client.get("/walks", params={"source": "live"}).json() == []
+
+
+def test_health_mode_is_demo_without_key(client):
+    body = client.get("/health").json()
+    assert body["mode"] == "demo"
+    assert body["reason"] == "no_api_key"
+    assert body["budget"]["calls_left"] == body["budget"]["calls_limit"]
+
+
+def test_health_mode_is_live_with_key(live_client):
+    body = live_client.get("/health").json()
+    assert body["mode"] == "live"
+    assert body["reason"] is None
+    assert body["budget"]["est_spend_usd"] == 0
+
+
+def test_storage_kv_roundtrip(tmp_path):
+    from app.storage import Storage
+
+    s = Storage(tmp_path / "t.sqlite3")
+    assert s.get_text("x") is None
+    s.set_text("x", "billing")
+    assert s.get_text("x") == "billing"
+    s.set_text("x", None)
+    assert s.get_text("x") is None

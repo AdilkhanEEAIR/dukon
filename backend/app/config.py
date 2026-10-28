@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     live_calls_per_hour_per_ip: int = 6
     live_calls_per_day_total: int = 60
 
+    # Оценка стоимости одного обхода в долларах (SAM + Spark на 3–6 фото). Уточним по Billing.
+    est_usd_per_walk: float = 0.12
+
     # Где лежит база и кэш ответов моделей.
     data_dir: Path = REPO_DIR / "data"
     db_path: Path = REPO_DIR / "data" / "dukon.sqlite3"

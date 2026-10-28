@@ -1,31 +1,39 @@
 """HTTP-сервер Dukon. Запуск: `uvicorn app.api:app --reload` из папки backend.
 
 Обращения:
-  GET  /health                       — жив ли сервер, какой провайдер, есть ли живой режим
-  POST /demo/seed                    — залить предзаписанные обходы (идемпотентно)
-  GET  /walks?source=demo|live       — список обходов
-  GET  /walks/{id}                   — один обход
-  GET  /walks/{id}/diff              — сравнение с предыдущим обходом того же источника
-  POST /walks/analyze                — живой режим: фото → обход (нужен демо-код)
-  DELETE /walks?source=live          — очистить живые обходы
+  GET    /health                         — жив ли сервер, режим (live/demo), причина, бюджет
+  POST   /demo/seed                      — пересоздать демо-филиалы и их обходы
+  GET    /shops                          — магазины этого устройства (заголовок x-device-id)
+  POST   /shops                          — добавить магазин или филиал
+  PATCH  /shops/{id}                     — переименовать, сменить адрес
+  DELETE /shops/{id}                     — удалить вместе с его обходами
+  GET    /shops/demo                     — демо-филиалы (для «Посмотреть демо»)
+  GET    /branches/overview?scope=mine   — сводка по филиалам: потери, пустые полки, последний обход
+  GET    /walks?source=&shop_id=         — список обходов
+  GET    /walks/{id}                     — один обход
+  GET    /walks/{id}/diff                — сравнение с предыдущим обходом того же магазина
+  POST   /walks/analyze?shop_id=         — живой режим: фото → обход (нужен демо-код)
+  DELETE /walks?source=live              — очистить живые обходы
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import __version__
 from .config import Settings, get_settings
-from .demo_data import demo_walks
+from .demo_data import DEMO_OWNER, demo_shops, demo_walks
 from .domain.diff import diff_walks
-from .domain.schemas import Walk, WalkDiff
+from .domain.schemas import BranchSummary, Shop, ShopIn, ShopPatch, Walk, WalkDiff
 from .models import build_provider
 from .models.meta import ProviderError
 from .pipeline.analyze import analyze_photo
@@ -37,6 +45,26 @@ log = logging.getLogger("dukon.api")
 
 MAX_PHOTOS_PER_WALK = 12
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+# Больше 20 точек у магазина у дома не бывает; лимит защищает базу от мусора с одного устройства.
+MAX_SHOPS_PER_DEVICE = 20
+DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+def device_id(x_device_id: str | None = Header(default=None)) -> str:
+    """Код устройства вместо аккаунта: фронт создаёт его один раз и хранит у себя."""
+    if not x_device_id or not DEVICE_ID.match(x_device_id) or x_device_id == DEMO_OWNER:
+        raise HTTPException(400, detail={"code": "device_required", "message": "Нужен код устройства"})
+    return x_device_id
+
+
+def seed_demo(storage: Storage) -> list[str]:
+    """Демо пересоздаётся при каждом запуске: даты остаются свежими, старые базы чинятся сами."""
+    storage.replace_owner_shops(DEMO_OWNER, demo_shops())
+    storage.delete_walks("demo")
+    walks = demo_walks()
+    for walk in walks:
+        storage.save_walk(walk)
+    return [w.id for w in walks]
 
 
 def create_app(settings: Settings | None = None, storage: Storage | None = None, provider=None) -> FastAPI:
@@ -48,9 +76,7 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        if not storage.list_walks(source="demo"):
-            for walk in demo_walks():
-                storage.save_walk(walk)
+        seed_demo(storage)
         yield
         storage.close()
 
@@ -68,6 +94,8 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
 
     @app.exception_handler(ProviderError)
     async def provider_error(_: Request, exc: ProviderError):
+        storage.increment(f"errors:{today_key()}")
+        storage.set_text("last_provider_error", exc.code)
         status = 503 if exc.retryable else 502
         return JSONResponse(
             status_code=status,
@@ -76,26 +104,98 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
 
     @app.get("/health")
     def health():
+        # Режим решает сервер, а не фронт: так фронт не притворяется живым, когда ключа нет.
+        calls_today = storage.get_counter(today_key())
+        last_error = storage.get_text("last_provider_error")
+        if not settings.live_enabled:
+            mode, reason = "demo", "no_api_key"
+        elif calls_today >= settings.live_calls_per_day_total:
+            mode, reason = "demo", "daily_budget"
+        elif last_error in ("billing", "auth"):
+            mode, reason = "demo", last_error
+        else:
+            mode, reason = "live", None
         return {
             "status": "ok",
             "version": __version__,
             "provider": provider.name,
             "live_enabled": settings.live_enabled,
-            "live_calls_today": storage.get_counter(today_key()),
+            "mode": mode,
+            "reason": reason,
+            "live_calls_today": calls_today,
             "live_calls_per_day_total": settings.live_calls_per_day_total,
+            "budget": {
+                "calls_today": calls_today,
+                "calls_limit": settings.live_calls_per_day_total,
+                "calls_left": max(0, settings.live_calls_per_day_total - calls_today),
+                "est_spend_usd": round(calls_today * settings.est_usd_per_walk, 2),
+                "errors_today": storage.get_counter(f"errors:{today_key()}"),
+                "last_error": last_error,
+            },
         }
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_: Request, exc: RequestValidationError):
+        # Ошибки формы приходят тем же форматом {code, message}, что и остальные: фронт покажет причину.
+        first = exc.errors()[0] if exc.errors() else {}
+        field = ".".join(str(p) for p in first.get("loc", [])[1:]) or "body"
+        return JSONResponse(
+            status_code=422,
+            content={"detail": {"code": "validation", "message": f"{field}: {first.get('msg', 'invalid')}"}},
+        )
 
     @app.post("/demo/seed")
     def seed():
-        storage.delete_walks("demo")
-        walks = demo_walks()
-        for walk in walks:
-            storage.save_walk(walk)
-        return {"seeded": [w.id for w in walks]}
+        return {"seeded": seed_demo(storage)}
+
+    # ---- магазины и филиалы
+    @app.get("/shops", response_model=list[Shop])
+    def list_shops(owner: str = Depends(device_id)):
+        return storage.list_shops(owner)
+
+    @app.get("/shops/demo", response_model=list[Shop])
+    def list_demo_shops():
+        return storage.list_shops(DEMO_OWNER)
+
+    @app.post("/shops", response_model=Shop, status_code=201)
+    def create_shop(body: ShopIn, owner: str = Depends(device_id)):
+        if storage.count_shops(owner) >= MAX_SHOPS_PER_DEVICE:
+            raise HTTPException(
+                409, detail={"code": "too_many_shops", "message": f"Не больше {MAX_SHOPS_PER_DEVICE} магазинов"}
+            )
+        shop = Shop(id="shop-" + uuid.uuid4().hex[:10], name=body.name, address=body.address)
+        return storage.create_shop(owner, shop)
+
+    @app.patch("/shops/{shop_id}", response_model=Shop)
+    def update_shop(shop_id: str, body: ShopPatch, owner: str = Depends(device_id)):
+        shop = storage.update_shop(shop_id, owner, body.name, body.address)
+        if shop is None:
+            raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
+        return shop
+
+    @app.delete("/shops/{shop_id}")
+    def delete_shop(shop_id: str, owner: str = Depends(device_id)):
+        if not storage.delete_shop(shop_id, owner):
+            raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
+        return {"deleted": shop_id}
+
+    @app.get("/branches/overview", response_model=list[BranchSummary])
+    def branches_overview(
+        scope: str = Query(default="mine", pattern="^(mine|demo)$"),
+        x_device_id: str | None = Header(default=None),
+    ):
+        if scope == "demo":
+            shops, sources = storage.list_shops(DEMO_OWNER), ("demo",)
+        else:
+            shops, sources = storage.list_shops(device_id(x_device_id)), ("live", "upload")
+        return [_summary(storage, shop, sources) for shop in shops]
 
     @app.get("/walks", response_model=list[Walk])
-    def list_walks(source: str | None = Query(default=None, pattern="^(demo|live|upload)$")):
-        return storage.list_walks(source=source)
+    def list_walks(
+        source: str | None = Query(default=None, pattern="^(demo|live|upload)$"),
+        shop_id: str | None = Query(default=None, max_length=64),
+    ):
+        return storage.list_walks(source=source, shop_id=shop_id)
 
     @app.delete("/walks")
     def clear_walks(source: str = Query(pattern="^(live|upload)$")):
@@ -120,8 +220,13 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         request: Request,
         photos: list[UploadFile] = File(...),
         label: str = Query(default=""),
+        shop_id: str | None = Query(default=None, max_length=64),
+        x_device_id: str | None = Header(default=None),
         _=Depends(deps),
     ):
+        # Магазин проверяем до лимитов: чужой магазин не должен тратить чужой бюджет.
+        if shop_id and storage.get_shop(shop_id, device_id(x_device_id)) is None:
+            raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
         guard_live(request, settings, storage, limiter)
         if not photos:
             raise HTTPException(400, detail={"code": "no_photos", "message": "Прикрепите хотя бы одно фото"})
@@ -134,7 +239,7 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
                 },
             )
 
-        walk = Walk(id="live-" + uuid.uuid4().hex[:10], label=label or _default_label(), source="live")
+        walk = Walk(id="live-" + uuid.uuid4().hex[:10], label=label or _default_label(), source="live", shop_id=shop_id)
         fresh_calls = 0
         for upload in photos:
             raw = await upload.read()
@@ -160,6 +265,27 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         return walk
 
     return app
+
+
+def _summary(storage: Storage, shop: Shop, sources: tuple[str, ...]) -> BranchSummary:
+    walks = sorted(
+        (w for src in sources for w in storage.list_walks(source=src, shop_id=shop.id)), key=lambda w: w.created_at
+    )
+    if not walks:
+        return BranchSummary(shop=shop, walks=0)
+    last = walks[-1]
+    diff = diff_walks(storage.previous_walk(last), last)
+    return BranchSummary(
+        shop=shop,
+        walks=len(walks),
+        last_walk_id=last.id,
+        last_walk_at=last.created_at,
+        total_items=diff.total_items,
+        out_of_stock=diff.out_of_stock,
+        low_stock=diff.low_stock,
+        price_mismatch=diff.price_mismatch,
+        loss_per_day=diff.loss_per_day,
+    )
 
 
 def _default_label() -> str:
