@@ -4,6 +4,10 @@
 Отдельными колонками — только то, по чему ищем (источник, магазин, время).
 Кэш по хэшу фото: одно и то же фото никогда не уходит в модель дважды — это защита кредитов.
 Магазины принадлежат устройству (owner): аккаунтов нет, а чужие магазины видеть нельзя.
+
+Одно соединение на весь сервер, а обращения FastAPI идут из пула потоков: модуль sqlite3 не переносит
+одновременную работу с одним соединением («bad parameter or other API misuse»), поэтому под замком
+не только запись, но и чтение. Для SQLite с десятком запросов в секунду очередь незаметна.
 """
 
 from __future__ import annotations
@@ -22,7 +26,8 @@ class Storage:
         self.path = Path(path)
         if str(self.path) != ":memory:":
             self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
+        # RLock: метод под замком может позвать другой метод под тем же замком (обновили магазин → перечитали).
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._migrate()
@@ -71,6 +76,15 @@ class Storage:
                 if col not in shop_cols:
                     self._conn.execute(f"ALTER TABLE shops ADD COLUMN {col} REAL")
 
+    # ---- чтение под замком: строки забираем целиком, пока замок у нас, а не лениво после
+    def _one(self, sql: str, params: tuple = ()) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(sql, params).fetchone()
+
+    def _all(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._conn.execute(sql, params).fetchall()
+
     # ---- обходы
     def save_walk(self, walk: Walk) -> None:
         with self._lock, self._conn:
@@ -80,7 +94,7 @@ class Storage:
             )
 
     def get_walk(self, walk_id: str) -> Walk | None:
-        row = self._conn.execute("SELECT body FROM walks WHERE id = ?", (walk_id,)).fetchone()
+        row = self._one("SELECT body FROM walks WHERE id = ?", (walk_id,))
         return Walk.model_validate_json(row["body"]) if row else None
 
     def list_walks(self, source: str | None = None, shop_id: str | None = None) -> list[Walk]:
@@ -93,15 +107,15 @@ class Storage:
             params.append(shop_id)
         clause = " WHERE " + " AND ".join(where) if where else ""
         query = f"SELECT body FROM walks{clause} ORDER BY created_at ASC"
-        return [Walk.model_validate_json(r["body"]) for r in self._conn.execute(query, tuple(params))]
+        return [Walk.model_validate_json(r["body"]) for r in self._all(query, tuple(params))]
 
     def previous_walk(self, walk: Walk) -> Walk | None:
         """Предыдущий обход того же источника и того же магазина — филиалы между собой не сравниваем."""
-        row = self._conn.execute(
+        row = self._one(
             "SELECT body FROM walks WHERE source = ? AND shop_id IS ? AND created_at < ? "
             "ORDER BY created_at DESC LIMIT 1",
             (walk.source, walk.shop_id, walk.created_at.isoformat()),
-        ).fetchone()
+        )
         return Walk.model_validate_json(row["body"]) if row else None
 
     def delete_walks(self, source: str, shop_id: str | None = None) -> int:
@@ -122,15 +136,15 @@ class Storage:
         return shop
 
     def list_shops(self, owner: str) -> list[Shop]:
-        rows = self._conn.execute("SELECT * FROM shops WHERE owner = ? ORDER BY created_at ASC", (owner,))
+        rows = self._all("SELECT * FROM shops WHERE owner = ? ORDER BY created_at ASC", (owner,))
         return [self._shop(r) for r in rows]
 
     def get_shop(self, shop_id: str, owner: str) -> Shop | None:
-        row = self._conn.execute("SELECT * FROM shops WHERE id = ? AND owner = ?", (shop_id, owner)).fetchone()
+        row = self._one("SELECT * FROM shops WHERE id = ? AND owner = ?", (shop_id, owner))
         return self._shop(row) if row else None
 
     def count_shops(self, owner: str) -> int:
-        return int(self._conn.execute("SELECT COUNT(*) AS n FROM shops WHERE owner = ?", (owner,)).fetchone()["n"])
+        return int(self._one("SELECT COUNT(*) AS n FROM shops WHERE owner = ?", (owner,))["n"])
 
     def update_shop(
         self,
@@ -183,7 +197,7 @@ class Storage:
 
     # ---- кэш фото
     def cached_photo(self, digest: str) -> PhotoAnalysis | None:
-        row = self._conn.execute("SELECT body FROM photo_cache WHERE hash = ?", (digest,)).fetchone()
+        row = self._one("SELECT body FROM photo_cache WHERE hash = ?", (digest,))
         return PhotoAnalysis.model_validate_json(row["body"]) if row else None
 
     def cache_photo(self, digest: str, analysis: PhotoAnalysis) -> None:
@@ -205,7 +219,7 @@ class Storage:
             return int(row["value"])
 
     def get_counter(self, key: str) -> int:
-        row = self._conn.execute("SELECT value FROM counters WHERE key = ?", (key,)).fetchone()
+        row = self._one("SELECT value FROM counters WHERE key = ?", (key,))
         return int(row["value"]) if row else 0
 
     # ---- мелкие строковые значения (последняя ошибка моделей и т.п.)
@@ -220,11 +234,12 @@ class Storage:
                 )
 
     def get_text(self, key: str) -> str | None:
-        row = self._conn.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
+        row = self._one("SELECT value FROM kv WHERE key = ?", (key,))
         return str(row["value"]) if row else None
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
 
 def dumps(obj) -> str:
