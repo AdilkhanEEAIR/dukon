@@ -145,8 +145,9 @@ export function AppShell() {
 // ---- переходы между страницами
 // Старая страница коротко растворяется вверх, новая выплывает снизу из лёгкого размытия;
 // её блоки затем идут каскадом (.stagger). В спокойном режиме — только прозрачность.
-const PAGE_IN: Transition = { duration: 0.75, ease: [0.16, 1, 0.3, 1] }
-const PAGE_OUT: Transition = { duration: 0.24, ease: [0.45, 0, 0.55, 1] }
+// Медленно и мягко: по просьбе — примерно вдвое дольше прежнего, уход короче прихода, чтобы клик не «вяз».
+const PAGE_IN: Transition = { duration: 1.3, ease: [0.16, 1, 0.3, 1] }
+const PAGE_OUT: Transition = { duration: 0.34, ease: [0.45, 0, 0.55, 1] }
 
 function scrollTop() {
   // instant: плавная прокрутка вверх во время смены страницы выглядит как рывок.
@@ -199,7 +200,7 @@ function PageMotion({ children }: { children: ReactNode }) {
 /** Смена «зоны» (лендинг ↔ онбординг ↔ приложение) — только растворением: внутри зоны есть фиксированные панели. */
 function AreaMotion({ children }: { children: ReactNode }) {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }} exit={{ opacity: 0, transition: { duration: 0.26 } }}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { duration: 1, ease: [0.16, 1, 0.3, 1] } }} exit={{ opacity: 0, transition: { duration: 0.36 } }}>
       {children}
     </motion.div>
   )

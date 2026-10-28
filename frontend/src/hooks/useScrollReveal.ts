@@ -98,9 +98,9 @@ export function useScrollReveal(enabled = true) {
             // остальное, что добавилось позже (строки списка, карточки после загрузки), въезжает каскадом здесь.
             if (prev === undefined && (!late.has(el) || el.matches('.stagger > *'))) continue
             const from: Exclude<State, 'in'> = prev === undefined || prev === 'in' ? 'below' : prev
-            const delay = Math.min(order++, 8) * (nested ? 60 : 90)
+            const delay = Math.min(order++, 8) * (nested ? 100 : 150)
             play(el, hiddenFrame(from, nested || prev === undefined, calm), calm ? SHOWN_CALM : SHOWN, {
-              duration: calm ? 600 : 1050,
+              duration: calm ? 1000 : 1900,
               easing: EASE,
               delay,
             })
@@ -108,7 +108,7 @@ export function useScrollReveal(enabled = true) {
             // Вне экрана с самого начала: прячем мгновенно, пользователь этого не видит.
             play(el, null, hiddenFrame(next, nested, calm), { duration: 0 })
           } else {
-            play(el, null, hiddenFrame(next, nested, calm), { duration: calm ? 420 : 680, easing: EASE_AWAY })
+            play(el, null, hiddenFrame(next, nested, calm), { duration: calm ? 700 : 1150, easing: EASE_AWAY })
           }
         }
       },
@@ -147,15 +147,25 @@ export function useScrollReveal(enabled = true) {
       tracked.forEach((el) => {
         if (states.get(el) !== 'below' || el.getBoundingClientRect().top >= window.innerHeight) return
         states.set(el, 'in')
-        play(el as HTMLElement, hiddenFrame('below', isNested(el), calm), calm ? SHOWN_CALM : SHOWN, { duration: calm ? 600 : 1050, easing: EASE })
+        play(el as HTMLElement, hiddenFrame('below', isNested(el), calm), calm ? SHOWN_CALM : SHOWN, { duration: calm ? 1000 : 1900, easing: EASE })
       })
     }
+    // Все отложенные проверки запоминаем: после размонтирования (смена страницы, конец теста) их нужно снять.
+    const timers = new Set<number>()
+    let disposed = false
     const onScroll = () => {
-      if (!scrollFrame) scrollFrame = requestAnimationFrame(atBottom)
+      if (!disposed && !scrollFrame) scrollFrame = requestAnimationFrame(atBottom)
+    }
+    const later = () => {
+      const id = window.setTimeout(() => {
+        timers.delete(id)
+        onScroll()
+      }, 700)
+      timers.add(id)
     }
     window.addEventListener('scroll', onScroll, { passive: true })
     // Короткая страница не прокручивается вовсе — проверяем низ и без прокрутки, после первого прохода наблюдателя.
-    const settle = window.setTimeout(onScroll, 700)
+    later()
 
     // Новые узлы досканируем пачкой раз в кадр: при загрузке списка их приходят десятки.
     let pending: Node[] = []
@@ -165,7 +175,7 @@ export function useScrollReveal(enabled = true) {
       const nodes = pending
       pending = []
       for (const n of nodes) if (n instanceof Element && n.isConnected) scan(n)
-      window.setTimeout(onScroll, 700)
+      later()
     }
     const mo = new MutationObserver((records) => {
       for (const r of records) {
@@ -184,7 +194,9 @@ export function useScrollReveal(enabled = true) {
       mo.disconnect()
       io.disconnect()
       window.removeEventListener('scroll', onScroll)
-      window.clearTimeout(settle)
+      disposed = true
+      timers.forEach((id) => window.clearTimeout(id))
+      timers.clear()
       if (frame) cancelAnimationFrame(frame)
       if (scrollFrame) cancelAnimationFrame(scrollFrame)
       tracked.forEach((el) => running.get(el)?.cancel())
