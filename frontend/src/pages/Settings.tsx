@@ -1,24 +1,25 @@
 // Настройки: магазины и филиалы (на сервере), язык, валюта, тема, демо-код, код устройства, сброс.
 // Удаление магазина — в два нажатия вместо системного confirm: диалог браузера блокирует страницу.
 
-import { Check, Copy, Info, Link2, MapPin, Moon, Pencil, Plus, Store, Sun, Trash2, X } from 'lucide-react'
+import { Check, Copy, Feather, Info, Link2, MapPin, MonitorSmartphone, Pencil, Plus, Sparkles, Store, Trash2, X } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { API_BASE, errorCode } from '../api/client'
 import type { Shop } from '../api/types'
-import { CURRENCIES, DEVICE_CODE, useSettings, type Currency, type Theme } from '../app/settings'
+import { CURRENCIES, DEVICE_CODE, useSettings, type Currency, type MotionPref, type Theme } from '../app/settings'
 import { useShops } from '../app/shops'
 import { Button, IconButton } from '../components/Button'
 import { Dropdown } from '../components/Dropdown'
 import { ChoiceRow, Field, Input } from '../components/Fields'
 import { AuthorLine, PageActions, REPO_URL } from '../components/Nav'
+import { ThemeIcon } from '../components/ThemeIcon'
 import { useToast } from '../components/Toast'
 import { DICTS, LOCALES, useI18n, type Locale } from '../i18n'
 import { CURRENCY_LABEL } from '../lib/currency'
 
 export function SettingsPage() {
   const { t, locale, setLocale } = useI18n()
-  const { settings, update, reset, deviceId, setDeviceId } = useSettings()
+  const { settings, update, reset, deviceId, setDeviceId, systemCalm } = useSettings()
   const toast = useToast()
   const navigate = useNavigate()
   const { hash } = useLocation()
@@ -91,10 +92,26 @@ export function SettingsPage() {
           value={settings.theme}
           onChange={(v) => update({ theme: v })}
           items={[
-            { key: 'light', label: t('theme.light'), icon: <Sun size={18} /> },
-            { key: 'dark', label: t('theme.dark'), icon: <Moon size={18} /> },
+            { key: 'light', label: t('theme.light'), icon: <ThemeIcon dark={false} animate={false} /> },
+            { key: 'dark', label: t('theme.dark'), icon: <ThemeIcon dark animate={false} /> },
           ]}
         />
+        <span className="field__label" style={{ marginBottom: -6 }}>{t('settings.motion')}</span>
+        <ChoiceRow<MotionPref>
+          label={t('settings.motion')}
+          value={settings.motion}
+          onChange={(v) => update({ motion: v })}
+          items={[
+            { key: 'auto', label: t('settings.motionAuto'), icon: <MonitorSmartphone size={18} /> },
+            { key: 'full', label: t('settings.motionFull'), icon: <Sparkles size={18} /> },
+            { key: 'calm', label: t('settings.motionCalm'), icon: <Feather size={18} /> },
+          ]}
+        />
+        {systemCalm && settings.motion === 'auto' && (
+          <p className="small" data-testid="motion-system-note">
+            {t('settings.motionSystemCalm')}
+          </p>
+        )}
       </section>
 
       <section className="sheet sheet--pad stack" style={{ gap: 12 }}>
