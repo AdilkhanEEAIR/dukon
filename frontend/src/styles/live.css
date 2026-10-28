@@ -1,0 +1,245 @@
+/* Заход 1.5: «живые данные ↔ демо» и экран, который дышит сам.
+   Кнопка в углу, живая точка режима, счётчик потерь на барабанах, часы, приглашение к первому обходу,
+   пульс филиалов с потерями на карте, звяканье колокольчика, бирка, которая тянется к курсору. */
+
+/* ================= живая точка режима ================= */
+.live-dot { position: relative; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  animation: live-ping 2.2s var(--ease-expo) infinite;
+}
+/* на паузе (модели недоступны) точка стоит и желтеет: данные живые, а новые обходы ждут */
+.live-dot.is-paused { background: var(--low); }
+.live-dot.is-paused::after { display: none; }
+@keyframes live-ping {
+  0% { transform: scale(1); opacity: 0.55; }
+  80%, 100% { transform: scale(2.9); opacity: 0; }
+}
+
+/* ================= кнопка в углу: живые данные ↔ демо ================= */
+.data-switch-wrap {
+  position: fixed;
+  right: 14px;
+  bottom: calc(var(--tabbar-h) + 14px + env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+}
+@media (min-width: 1024px) {
+  .data-switch-wrap { right: 24px; bottom: 24px; }
+}
+.data-switch {
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--surface) 86%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+.data-switch:focus-visible { outline: none; box-shadow: var(--focus), var(--shadow-pop); }
+.data-switch__inner { display: inline-flex; align-items: center; gap: 4px; }
+.data-switch__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  transition: transform 520ms var(--ease-spring), color 240ms ease;
+}
+/* живой режим: надпись «Показать демо» спрятана и выезжает только под курсором или с клавиатуры */
+.data-switch__reveal {
+  display: inline-block;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-width 560ms var(--ease-expo), opacity 280ms ease, padding 560ms var(--ease-expo);
+}
+.data-switch--live:focus-visible .data-switch__reveal { max-width: 240px; opacity: 1; padding-right: 10px; }
+@media (hover: hover) {
+  .data-switch--live:hover .data-switch__reveal { max-width: 240px; opacity: 1; padding-right: 10px; }
+  .data-switch--live:hover .data-switch__icon { transform: rotate(-14deg) scale(1.08); color: var(--low); }
+  .data-switch--demo:hover .data-switch__action { color: var(--accent); }
+  .data-switch--down:hover .data-switch__spin { animation-duration: 0.8s; }
+}
+.data-switch:active { transform: scale(0.97); }
+
+.data-switch--demo,
+.data-switch--down { padding: 0 6px; }
+.data-switch__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: var(--low-soft);
+  color: var(--low);
+}
+.data-switch--down .data-switch__tag { background: var(--out-soft); color: var(--out); }
+.data-switch__action { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px 0 8px; color: var(--ink); transition: color 240ms ease; }
+.data-switch__spin { animation: spin 2.4s linear infinite; }
+@media (max-width: 480px) {
+  .data-switch__tag-text { display: none; }
+  .data-switch__tag { padding: 0 9px; }
+}
+
+/* тосты встают над кнопкой, а контент страницы не прячется под ней */
+.toasts { bottom: calc(var(--tabbar-h) + 72px + env(safe-area-inset-bottom, 0px)); }
+.app .app__main { padding-bottom: calc(var(--tabbar-h) + 84px); }
+@media (min-width: 1024px) {
+  .toasts { bottom: 84px; }
+  .app .app__main { padding-bottom: 96px; }
+}
+
+/* ================= счётчик «Сегодня уже потеряно» ================= */
+.loss-meter {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 2px 14px;
+  padding: 14px 18px;
+  border-radius: var(--r-lg);
+  background: color-mix(in oklab, var(--out) 6%, var(--surface));
+  border: 1px solid color-mix(in oklab, var(--out) 22%, var(--line));
+  max-width: 460px;
+}
+.loss-meter__head { display: inline-flex; align-items: center; gap: 8px; grid-column: 1 / -1; font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.loss-meter__value {
+  grid-column: 1 / -1;
+  font-family: var(--font-display);
+  font-size: clamp(26px, 5vw, 34px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--out);
+}
+.loss-meter__hint { grid-column: 1 / -1; font-size: 12px; color: var(--ink-3); }
+/* «идёт запись»: красная точка мигает, как на камере */
+.rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--out); box-shadow: 0 0 0 0 color-mix(in oklab, var(--out) 50%, transparent); animation: rec 1.6s ease-in-out infinite; }
+@keyframes rec {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in oklab, var(--out) 45%, transparent); }
+  50% { opacity: 0.45; box-shadow: 0 0 0 6px color-mix(in oklab, var(--out) 0%, transparent); }
+}
+
+/* барабаны цифр: каждая цифра в своём окошке, новая въезжает снизу */
+.odo { display: inline-flex; align-items: baseline; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.odo__slot { position: relative; display: inline-flex; overflow: hidden; height: 1.1em; }
+.odo__digit { display: inline-block; }
+.odo__sep { display: inline-block; white-space: pre; }
+
+/* ================= часы с мигающим двоеточием ================= */
+.clock { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.page-head__sub > span { white-space: nowrap; }
+.clock__colon { display: inline-block; animation: colon 2s steps(1, end) infinite; }
+@keyframes colon {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.25; }
+}
+
+/* ================= первый обход: приглашение с полкой, где рамки находят товар ================= */
+.first-walk {
+  display: grid;
+  gap: 24px;
+  padding: 24px;
+  overflow: hidden;
+  align-items: center;
+}
+@media (min-width: 900px) {
+  .first-walk { grid-template-columns: 1.05fr 1fr; padding: 32px; gap: 36px; }
+}
+.first-walk__text { display: flex; flex-direction: column; gap: 14px; }
+.first-walk__steps { list-style: none; margin: 4px 0 6px; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.first-walk__steps li { display: flex; gap: 12px; align-items: flex-start; }
+.first-walk__n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent-soft);
+  color: var(--accent-soft-ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+.first-walk__art { border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--line); background: var(--surface); }
+.first-walk__art .shelf-art { display: block; width: 100%; height: auto; }
+
+/* приглашение: кнопки «Новый обход» мягко расходятся кольцом, пока своих обходов нет.
+   Кольцо — это outline: он не трогает overflow кнопки, поэтому блик и волна от нажатия остаются внутри. */
+.invite,
+.app[data-invite] .tab--scan .tab__bump,
+.app[data-invite] .rail__foot .btn--primary {
+  outline: 2px solid transparent;
+  outline-offset: 0;
+  animation: invite 2.6s cubic-bezier(0.3, 0.5, 0.4, 1) infinite;
+}
+@keyframes invite {
+  0% { outline-color: color-mix(in oklab, var(--accent) 55%, transparent); outline-offset: 0; }
+  70%, 100% { outline-color: color-mix(in oklab, var(--accent) 0%, transparent); outline-offset: 12px; }
+}
+
+/* ================= карта: филиалы с потерями пульсируют у основания бирки ================= */
+.map-pin--out::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -16px;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border-radius: 50%;
+  background: var(--out);
+  opacity: 0;
+  z-index: -1;
+  animation: pin-pulse 2.4s var(--ease-expo) 1s infinite;
+  pointer-events: none;
+}
+@keyframes pin-pulse {
+  0% { transform: scale(0.5); opacity: 0.5; }
+  80%, 100% { transform: scale(3.2); opacity: 0; }
+}
+
+/* ================= заголовок страницы поднимается из-под маски ================= */
+.page-head .h1 { animation: title-rise 1200ms var(--ease-expo) both; }
+@keyframes title-rise {
+  from { clip-path: inset(-12% -6% 100% -6%); translate: 0 0.45em; }
+  to { clip-path: inset(-12% -6% -24% -6%); translate: 0 0; }
+}
+
+/* ================= колокольчик звякает на новое уведомление ================= */
+.bell-ring { transform-origin: 50% 2px; animation: bell 1100ms var(--ease-out) 300ms both; }
+@keyframes bell {
+  0% { rotate: 0deg; }
+  15% { rotate: 16deg; }
+  30% { rotate: -13deg; }
+  45% { rotate: 9deg; }
+  60% { rotate: -6deg; }
+  75% { rotate: 3deg; }
+  100% { rotate: 0deg; }
+}
+
+/* ================= бирка потерь тянется к курсору ================= */
+.tag--loss { rotate: var(--sway, 0deg); transition: rotate 900ms var(--ease-spring); }
+
+/* ================= спокойный режим: всё, что двигается само, замирает; смысл остаётся ================= */
+:root[data-motion='calm'] :is(.rec-dot, .clock__colon, .data-switch__spin) { animation: none; }
+:root[data-motion='calm'] .live-dot::after,
+:root[data-motion='calm'] .map-pin--out::before { animation: none; display: none; }
+:root[data-motion='calm'] :is(.invite, .app[data-invite] .tab__bump, .app[data-invite] .btn--primary) { animation: none; }
+:root[data-motion='calm'] .page-head .h1 { animation: fade-only 800ms ease both; }
+:root[data-motion='calm'] .bell-ring { animation: none; }
+:root[data-motion='calm'] .tag--loss { rotate: 0deg; }
