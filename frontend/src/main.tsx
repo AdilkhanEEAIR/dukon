@@ -9,6 +9,7 @@ import './styles/polish.css'
 import './styles/maps.css'
 import './styles/live.css'
 import './styles/data.css'
+import './styles/agent.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
