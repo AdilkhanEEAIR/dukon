@@ -1,3 +1,6 @@
+from app.domain.schemas import PhotoAnalysis
+from app.models.base import SparkReading
+from app.pipeline.images import sha256
 from tests.conftest import make_jpeg
 
 
@@ -162,3 +165,38 @@ def test_parallel_requests_share_one_connection_safely(client):
     with ThreadPoolExecutor(max_workers=16) as pool:
         codes = list(pool.map(hit, range(400)))
     assert set(codes) == {200}
+
+
+def test_photo_endpoint_serves_resized_copy_and_rejects_bad_ids(live_client):
+    files = [("photos", ("a.jpg", make_jpeg(2400, 1800, (90, 40, 10)), "image/jpeg"))]
+    walk = live_client.post("/walks/analyze", files=files, headers={"x-demo-key": "test-key"}).json()
+    photo = walk["photos"][0]
+    assert photo["evidence"] == "boxes" and photo["concepts"] and photo["price_tags"]
+    r = live_client.get(f"/photos/{photo['photo_id']}.jpg")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
+    assert "immutable" in r.headers["cache-control"]
+    assert live_client.get("/photos/../../etc/passwd.jpg").status_code in (404, 422)
+    assert live_client.get("/photos/0000000000000000.jpg").status_code == 404
+
+
+def test_old_cached_answer_is_ignored_and_empty_answers_are_not_cached(live_client, storage, provider):
+    """Фото, разобранное прежним конвейером, разбирается заново; пустой разбор не кэшируется."""
+    raw = make_jpeg(1200, 900, (60, 70, 80))
+    storage.cache_photo(sha256(raw), PhotoAnalysis(photo_id="old", width=1, height=1))  # ключ без версии
+    headers = {"x-demo-key": "test-key"}
+    walk = live_client.post("/walks/analyze", files=[("photos", ("a.jpg", raw, "image/jpeg"))], headers=headers).json()
+    assert walk["photos"][0]["photo_id"] != "old" and walk["photos"][0]["shelves"]
+
+    other = [("photos", ("b.jpg", make_jpeg(1000, 800, (5, 5, 5)), "image/jpeg"))]
+    original = (provider.detect, provider.count_items)
+    provider.detect = lambda jpeg, prompt: []
+    provider.count_items = lambda jpeg, hint="": SparkReading()
+    try:
+        r = live_client.post("/walks/analyze", files=other, headers=headers)
+        assert r.status_code == 201 and r.json()["photos"][0]["shelves"] == []
+    finally:
+        provider.detect, provider.count_items = original
+    calls = provider.calls
+    r = live_client.post("/walks/analyze", files=other, headers=headers)
+    assert r.json()["photos"][0]["shelves"], "после пустого ответа то же фото разбирается заново"
+    assert provider.calls > calls
