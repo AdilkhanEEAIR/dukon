@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     model_api_base_url: str = "https://api.meta.ai/v1"
     spark_model: str = "muse-spark-1.3"
     sam_model: str = "sam-3.1"
+    # Агент и разговор — тот же Spark: он умеет вызывать инструменты. Голос — отдельная модель.
+    agent_model: str = "muse-spark-1.3"
+    voice_model: str = "muse-voice-transcribe-1.0"
+    # Сколько шагов (вызовов модели) агенту можно сделать за один прогон: защита кредитов и от зацикливания.
+    agent_max_steps: int = 24
 
     # Провайдер моделей: "meta" — настоящие вызовы, "mock" — детерминированные заглушки.
     provider: str = "mock"

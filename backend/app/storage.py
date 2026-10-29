@@ -18,7 +18,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .domain.schemas import PhotoAnalysis, Shop, Walk
+from .domain.schemas import AgentEvent, AgentRun, Order, PhotoAnalysis, Rules, Shop, Walk
 
 
 class Storage:
@@ -63,6 +63,27 @@ class Storage:
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS shops_owner ON shops (owner);
+                CREATE TABLE IF NOT EXISTS rules (
+                    shop_id TEXT PRIMARY KEY,
+                    body TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS agent_runs (
+                    id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    walk_id TEXT NOT NULL,
+                    shop_id TEXT,
+                    status TEXT NOT NULL,
+                    body TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS agent_runs_walk ON agent_runs (walk_id, created_at);
+                CREATE TABLE IF NOT EXISTS orders (
+                    id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    shop_id TEXT,
+                    walk_id TEXT NOT NULL,
+                    body TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS orders_shop ON orders (shop_id, created_at);
                 """
             )
             # База из прошлой версии: у обходов ещё нет колонки магазина — добавляем, данные не трогаем.
@@ -236,6 +257,89 @@ class Storage:
     def get_text(self, key: str) -> str | None:
         row = self._one("SELECT value FROM kv WHERE key = ?", (key,))
         return str(row["value"]) if row else None
+
+    # ---- правила хозяина (по магазину)
+    def get_rules(self, shop_id: str | None) -> Rules:
+        row = self._one("SELECT body FROM rules WHERE shop_id = ?", (shop_id or "",))
+        return Rules.model_validate_json(row["body"]) if row else Rules()
+
+    def set_rules(self, shop_id: str | None, rules: Rules) -> Rules:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO rules (shop_id, body) VALUES (?, ?) "
+                "ON CONFLICT(shop_id) DO UPDATE SET body = excluded.body",
+                (shop_id or "", rules.model_dump_json()),
+            )
+        return rules
+
+    def reset_rules(self, shop_id: str | None) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM rules WHERE shop_id = ?", (shop_id or "",))
+
+    # ---- прогоны агента: журнал пишется по событию, фронт читает его потоком
+    def save_run(self, run: AgentRun) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO agent_runs (id, created_at, walk_id, shop_id, status, body) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (run.id, run.created_at.isoformat(), run.walk_id, run.shop_id, run.status, run.model_dump_json()),
+            )
+
+    def get_run(self, run_id: str) -> AgentRun | None:
+        row = self._one("SELECT body FROM agent_runs WHERE id = ?", (run_id,))
+        return AgentRun.model_validate_json(row["body"]) if row else None
+
+    def append_run_event(self, run_id: str, event: AgentEvent) -> None:
+        # Читаем и пишем под одним замком: два потока не затрут события друг друга.
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT body FROM agent_runs WHERE id = ?", (run_id,)).fetchone()
+            if row is None:
+                return
+            run = AgentRun.model_validate_json(row["body"])
+            run.events.append(event)
+            run.steps = max(run.steps, event.step)
+            self._conn.execute("UPDATE agent_runs SET body = ? WHERE id = ?", (run.model_dump_json(), run_id))
+
+    def latest_run(self, walk_id: str) -> AgentRun | None:
+        row = self._one("SELECT body FROM agent_runs WHERE walk_id = ? ORDER BY created_at DESC LIMIT 1", (walk_id,))
+        return AgentRun.model_validate_json(row["body"]) if row else None
+
+    def delete_runs(self, walk_id: str | None = None) -> int:
+        with self._lock, self._conn:
+            if walk_id:
+                return self._conn.execute("DELETE FROM agent_runs WHERE walk_id = ?", (walk_id,)).rowcount
+            return self._conn.execute("DELETE FROM agent_runs").rowcount
+
+    # ---- утверждённые заказы
+    def save_order(self, order: Order) -> Order:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO orders (id, created_at, shop_id, walk_id, body) VALUES (?, ?, ?, ?, ?)",
+                (order.id, order.created_at.isoformat(), order.shop_id, order.walk_id, order.model_dump_json()),
+            )
+        return order
+
+    def get_order(self, order_id: str) -> Order | None:
+        row = self._one("SELECT body FROM orders WHERE id = ?", (order_id,))
+        return Order.model_validate_json(row["body"]) if row else None
+
+    def list_orders(self, shop_id: str | None = None, walk_id: str | None = None) -> list[Order]:
+        where, params = [], []
+        if shop_id:
+            where.append("shop_id = ?")
+            params.append(shop_id)
+        if walk_id:
+            where.append("walk_id = ?")
+            params.append(walk_id)
+        clause = " WHERE " + " AND ".join(where) if where else ""
+        rows = self._all(f"SELECT body FROM orders{clause} ORDER BY created_at DESC", tuple(params))
+        return [Order.model_validate_json(r["body"]) for r in rows]
+
+    def delete_orders(self, shop_id: str | None = None) -> int:
+        with self._lock, self._conn:
+            if shop_id:
+                return self._conn.execute("DELETE FROM orders WHERE shop_id = ?", (shop_id,)).rowcount
+            return self._conn.execute("DELETE FROM orders").rowcount
 
     def close(self) -> None:
         with self._lock:

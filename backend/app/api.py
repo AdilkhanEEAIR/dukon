@@ -14,6 +14,7 @@
   GET    /walks/{id}/diff                — сравнение с предыдущим обходом того же магазина
   POST   /walks/analyze?shop_id=         — живой режим: фото → обход (нужен демо-код)
   DELETE /walks?source=live              — очистить живые обходы
+Поставщики, правила, черновики, агент, разговор, утверждение заказов и голос — в agent_api.py.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import __version__
+from .agent_api import register as register_agent
 from .config import Settings, get_settings
 from .demo_data import DEMO_OWNER, demo_shops, demo_walks
 from .domain.diff import diff_walks
@@ -64,6 +66,10 @@ def seed_demo(storage: Storage) -> list[str]:
     walks = demo_walks()
     for walk in walks:
         storage.save_walk(walk)
+        # Правила и прогоны демо тоже начинаются с чистого листа: демо у всех должно выглядеть одинаково.
+        storage.delete_runs(walk.id)
+    for shop in demo_shops():
+        storage.reset_rules(shop.id)
     return [w.id for w in walks]
 
 
@@ -78,6 +84,9 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
     async def lifespan(_: FastAPI):
         seed_demo(storage)
         yield
+        # Прогон агента идёт в фоне: даём ему дописать журнал, прежде чем закрыть базу.
+        for thread in list(getattr(app.state, "agent_threads", [])):
+            thread.join(timeout=10)
         storage.close()
 
     app = FastAPI(title="Dukon API", version=__version__, lifespan=lifespan)
@@ -131,6 +140,14 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
                 "est_spend_usd": round(calls_today * settings.est_usd_per_walk, 2),
                 "errors_today": storage.get_counter(f"errors:{today_key()}"),
                 "last_error": last_error,
+                "agent_steps_today": storage.get_counter("agent_steps:" + today_key()),
+            },
+            "voice_enabled": settings.live_enabled,
+            "models": {
+                "vision": settings.sam_model,
+                "reader": settings.spark_model,
+                "agent": settings.agent_model,
+                "voice": settings.voice_model,
             },
         }
 
@@ -278,6 +295,7 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         storage.save_walk(walk)
         return walk
 
+    register_agent(app, settings, storage, provider, limiter, device_id)
     return app
 
 
