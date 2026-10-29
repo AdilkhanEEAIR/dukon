@@ -12,6 +12,7 @@
   GET    /walks?source=&shop_id=         — список обходов
   GET    /walks/{id}                     — один обход
   GET    /walks/{id}/diff                — сравнение с предыдущим обходом того же магазина
+  GET    /photos/{photo_id}.jpg          — уменьшенное фото обхода (поверх него фронт рисует рамки)
   POST   /walks/analyze?shop_id=         — живой режим: фото → обход (нужен демо-код)
   DELETE /walks?source=live              — очистить живые обходы
 Поставщики, правила, черновики, агент, разговор, утверждение заказов и голос — в agent_api.py.
@@ -28,7 +29,7 @@ from datetime import datetime, timezone
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from . import __version__
 from .agent_api import register as register_agent
@@ -38,7 +39,7 @@ from .domain.diff import diff_walks
 from .domain.schemas import BranchSummary, Shop, ShopIn, ShopPatch, Walk, WalkDiff
 from .models import build_provider
 from .models.meta import ProviderError
-from .pipeline.analyze import analyze_photo
+from .pipeline.analyze import PIPELINE_VERSION, analyze_photo
 from .pipeline.images import ImageError, sha256
 from .security import RateLimiter, guard_live, today_key
 from .storage import Storage
@@ -50,6 +51,7 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 # Больше 20 точек у магазина у дома не бывает; лимит защищает базу от мусора с одного устройства.
 MAX_SHOPS_PER_DEVICE = 20
 DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+PHOTO_ID = re.compile(r"^[a-f0-9]{16}$")
 
 
 def device_id(x_device_id: str | None = Header(default=None)) -> str:
@@ -275,16 +277,22 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
                 raise HTTPException(
                     413, detail={"code": "file_too_large", "message": f"Файл {upload.filename} больше 25 МБ"}
                 )
-            digest = sha256(raw)
+            # Версия конвейера входит в ключ: после смены конвейера старый ответ (например, пустой
+            # от прежней подсказки SAM) не должен возвращаться из кэша вместо нового разбора.
+            digest = f"{PIPELINE_VERSION}:{sha256(raw)}"
             cached = storage.cached_photo(digest)
             if cached:
                 walk.photos.append(cached)
                 continue
             try:
-                analysis = analyze_photo(raw, provider, settings.max_image_side, settings.jpeg_quality)
+                analysis = analyze_photo(
+                    raw, provider, settings.max_image_side, settings.jpeg_quality, settings.data_dir / "photos"
+                )
             except ImageError as exc:
                 raise HTTPException(415, detail={"code": "bad_image", "message": f"{upload.filename}: {exc}"}) from exc
-            storage.cache_photo(digest, analysis)
+            # Пустой результат не кэшируем: следующая попытка с тем же фото должна снова спросить модели.
+            if analysis.items:
+                storage.cache_photo(digest, analysis)
             walk.photos.append(analysis)
             fresh_calls += 1
         if fresh_calls:
@@ -294,6 +302,17 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
             storage.set_text("last_provider_error", None)
         storage.save_walk(walk)
         return walk
+
+    @app.get("/photos/{photo_id}.jpg")
+    def get_photo(photo_id: str):
+        # Имя файла — хэш, других символов быть не может: это и защита от выхода за папку.
+        if not PHOTO_ID.match(photo_id):
+            raise HTTPException(404, detail={"code": "not_found", "message": "Фото не найдено"})
+        path = settings.data_dir / "photos" / f"{photo_id}.jpg"
+        if not path.is_file():
+            raise HTTPException(404, detail={"code": "not_found", "message": "Фото не найдено"})
+        headers = {"Cache-Control": "public, max-age=31536000, immutable"}
+        return FileResponse(path, media_type="image/jpeg", headers=headers)
 
     register_agent(app, settings, storage, provider, limiter, device_id)
     return app
