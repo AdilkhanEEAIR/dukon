@@ -4,7 +4,9 @@
 
 Built solo during the **Meta Global AI Developer Hackathon 2026** (Indie track, Oct 26 – Nov 4). All code in this repository was written during the hackathon.
 
-**Meta models used:** SAM 3.1 (finds every product on the shelf), Muse Spark (reads names, counts and Kyrgyz/Russian price tags in som), more coming in the next days.
+**Meta models used:** SAM 3.1 (sees: finds every product on the shelf), Muse Spark 1.3 (reads: names, counts and Kyrgyz/Russian price tags in som; thinks: the ordering agent with tool calling and the conversation), Muse Voice Transcribe 1.0 (hears: the owner talks to the agent).
+
+**The idea in one line:** the model proposes, the code checks, the owner approves. Every step the agent takes passes through the owner's rules in plain Python before anything is sent to a supplier — and a blocked step stays in the log with the reason, so you see the rule fire.
 
 ## How it works
 
@@ -17,7 +19,16 @@ iPhone photos (HEIC) ─► JPEG ─► SAM 3.1 boxes ─► numbered overlay �
                    diff: sold, velocity, out-of-stock, price mismatch, loss per day
                             │
                             ▼
-                   draft orders for the supplier (agent — in progress)
+                   draft orders by supplier (packs, delivery days, volume discounts)
+                            │
+                            ▼
+      Muse Spark agent: propose_order → ask_supplier → confirm_order → finish   (tool calling)
+                            │                ▲
+                            ▼                │ every proposal
+                   agent/verifier.py — the owner's rules, pure functions, blocks and explains
+                            │
+                            ▼
+                   owner approves → WhatsApp message to the supplier
 ```
 
 ## Repository layout
@@ -79,7 +90,7 @@ Refresh the snapshot after changing the demo seed: `cd backend; python -m script
 
 ## Map
 
-Branches are shown on a vector map (MapLibre GL with OpenFreeMap tiles, no API key; light and dark styles follow the app theme). A shop gets its point from the phone's location or a tap on the map; the address is filled by OpenStreetMap Nominatim reverse geocoding (one request per action, as its usage policy asks). Map data © OpenStreetMap contributors, © OpenMapTiles. If the vector style cannot be loaded, the map falls back to CARTO raster tiles in the same tones (© OpenStreetMap contributors, © CARTO); only when both fail does it say the map did not load. Tile and glyph errors after the map has loaded never cover it.
+Branches are shown on a vector map (MapLibre GL with OpenFreeMap tiles, no API key; light and dark styles follow the app theme). The mouse wheel zooms; on touch screens the map asks for two fingers so it never captures page scrolling. A shop gets its point from the phone's location or a tap on the map; the address is filled by OpenStreetMap Nominatim reverse geocoding (one request per action, as its usage policy asks). Map data © OpenStreetMap contributors, © OpenMapTiles. If the vector style cannot be loaded, the map falls back to CARTO raster tiles in the same tones (© OpenStreetMap contributors, © CARTO); only when both fail does it say the map did not load. Tile and glyph errors after the map has loaded never cover it.
 
 ## Export
 
@@ -90,6 +101,25 @@ The walk report, the draft order and the branch comparison each have an **Export
 - **CSV** — plain table for accounting software, UTF-8 with BOM.
 
 Files use the interface language and the selected currency, and demo data is marked as such. `pdfmake` and `write-excel-file` load only when an export is requested.
+
+## Agent: the model proposes, the code checks
+
+`POST /agent/run?walk_id=` starts a negotiation for the latest walk and streams the journal over SSE (`/agent/runs/{id}/events`). The agent is Muse Spark with five tools (`backend/app/agent/workbench.py`):
+
+| tool | what the code does |
+|---|---|
+| `propose_order` | rounds quantities to packs, runs **every owner's rule** (`agent/verifier.py`); on a violation returns `blocked` with the rule, the limit and a fix hint — the model must correct itself |
+| `ask_supplier` | the supplier simulator answers like a sales rep: what is out of stock, the minimum order, the volume discount, the delivery day and a "take more and get 5%" counter-offer |
+| `confirm_order` | builds the order from the supplier's reply and runs the rules again |
+| `skip_item`, `say`, `finish` | explain, skip, finish; `finish` checks the daily total across all suppliers |
+
+Owner's rules (per shop, editable in the UI or by talking to the agent): max order total per day, max days of stock per item, max units per line, no dairy deliveries on chosen weekdays, banned suppliers, a minimum discount before buying more than needed. They are pure functions with a test per rule (`backend/tests/test_verifier.py`), so the model cannot talk its way around them — and neither can the owner: `POST /orders/approve` runs the same checks.
+
+Without a model key (and for demo walks) the same loop runs on a deterministic script that behaves like a greedy but teachable buyer: it reaches for a discount, orders dairy on the supplier's nearest day, gets blocked twice, fixes itself and confirms three orders. That recorded run is also bundled into the frontend snapshot, so the agent screen works even when the server is down.
+
+**Conversation and voice.** `POST /agent/chat` answers questions about the walk ("what am I losing?") and can change a rule or start the negotiation from a sentence ("no dairy on Friday", "order everything"). On the Agent screen the owner can also speak: the browser records the microphone, converts it to 16-kHz mono WAV and sends it to `POST /voice/transcribe`, which calls **Muse Voice Transcribe** (`/v1/asr/transcribe`) with the shop's product names as keyword hints. Russian and Kyrgyz are not among the model's 25 evaluated languages, so when the server has no key or the model is not available the screen falls back to the browser's own speech recognition; replies are read aloud with the browser's speech synthesis. The agent, the chat and voice are protected like live walks: judge code, per-IP limit, daily budget.
+
+**Orders.** `GET /orders/drafts` groups the walk's recommendations by supplier (packs, delivery day, discount); the Orders screen lets the owner edit quantities, shows what the agent negotiated, and **Approve and send** creates orders with a ready WhatsApp message (`wa.me` link) per supplier. Suppliers in `backend/app/agent/suppliers.py` are sample Bishkek distributors (names and phones are placeholders).
 
 ## Live mode and credit protection
 
