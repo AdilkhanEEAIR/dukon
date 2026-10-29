@@ -81,6 +81,9 @@ export function ShelvesPage() {
         <ErrorState error={state.error} onRetry={() => void refetch()} secondary={<Button variant="secondary" to="/app">{t('common.home')}</Button>} />
       ) : state.data === null ? (
         <EmptyState icon={ScanLine} title={t('shelves.nothingToCompare')} text={t('shelves.nothingToCompareBody')} action={<Button to="/app/scan">{t('shelves.startWalk')}</Button>} />
+      ) : state.data.walk.photos.every((p) => p.shelves.every((s) => s.items.length === 0)) ? (
+        // Честное «ничего не распознано»: раньше тут было «всё в порядке», хотя модель просто не нашла товаров.
+        <EmptyState icon={ScanLine} title={t('shelves.nothingRecognized')} text={t('shelves.nothingRecognizedBody')} action={<Button to="/app/scan">{t('shelves.startWalk')}</Button>} tone="out" />
       ) : (
         <ReportBody report={state.data} />
       )}

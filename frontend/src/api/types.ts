@@ -16,6 +16,15 @@ export interface ShelfItem {
   price_text: string
   boxes: Box[]
   confidence: number
+  /** Модель не уверена или считала без рамок — хозяину стоит взглянуть самому. */
+  needs_review?: boolean
+}
+
+/** Что Muse Spark велел искать SAM на этом фото и сколько рамок дало каждое слово. */
+export interface Concept {
+  query: string
+  label: string
+  boxes: number
 }
 
 export interface Shelf {
@@ -31,6 +40,11 @@ export interface PhotoAnalysis {
   shelves: Shelf[]
   model_calls: number
   notes: string[]
+  /** Откуда штуки: рамки SAM, подсчёт Spark без рамок или ничего не найдено. */
+  evidence?: 'boxes' | 'model_count' | 'none'
+  concepts?: Concept[]
+  price_tags?: Box[]
+  seconds?: number
 }
 
 export type WalkSource = 'live' | 'demo' | 'upload'
