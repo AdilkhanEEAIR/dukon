@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import hashlib
 from io import BytesIO
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from ..domain.schemas import Box
+from ..domain.schemas import Box, ShelfItem
 
 try:  # HEIC читается только с этим плагином; без него iPhone-фото не откроются
     import pillow_heif
@@ -42,6 +43,40 @@ def to_jpeg(raw: bytes, max_side: int = 1600, quality: int = 88) -> tuple[bytes,
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def save_photo(photo_dir: Path, photo_id: str, jpeg: bytes) -> Path:
+    """Кладёт уменьшенную копию рядом с базой. Имя — хэш, поэтому одно фото не хранится дважды."""
+    photo_dir.mkdir(parents=True, exist_ok=True)
+    path = photo_dir / f"{photo_id}.jpg"
+    if not path.exists():
+        path.write_bytes(jpeg)
+    return path
+
+
+def annotate_named(jpeg: bytes, items: list[ShelfItem], price_tags: list[Box]) -> bytes:
+    """Картинка для бенча и README: рамки товаров подписаны названием, ценники — жёлтым."""
+    with Image.open(BytesIO(jpeg)) as im:
+        im = im.convert("RGB")
+        draw = ImageDraw.Draw(im)
+        font = _font(max(12, im.width // 90))
+        stroke = max(2, im.width // 600)
+        for tag in price_tags:
+            draw.rectangle([tag.x1, tag.y1, tag.x2, tag.y2], outline=(245, 190, 20), width=stroke)
+        for item in items:
+            color = (214, 69, 51) if item.needs_review else (31, 158, 92)
+            for box in item.boxes:
+                draw.rectangle([box.x1, box.y1, box.x2, box.y2], outline=color, width=stroke)
+            if item.boxes:
+                first = min(item.boxes, key=lambda b: (b.y1, b.x1))
+                label = f"{item.name} ×{item.count}" + (f" · {item.price:g}" if item.price is not None else "")
+                tw, th = _text_size(draw, label, font)
+                y = max(0, first.y1 - th - 8)
+                draw.rectangle([first.x1, y, first.x1 + tw + 10, y + th + 6], fill=color)
+                draw.text((first.x1 + 5, y + 2), label, fill=(255, 255, 255), font=font)
+        out = BytesIO()
+        im.save(out, format="JPEG", quality=85)
+        return out.getvalue()
 
 
 def annotate(jpeg: bytes, boxes: list[Box]) -> bytes:
