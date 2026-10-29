@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { AppRoutes, Providers } from '../App'
-import { DEVICE, demoHealth, diff, happyRoutes, health, jsonResponse, liveRoutes, mockFetch, mineOverview, seedSettings, shops, walk, walkBefore, type Routes } from '../test/fixtures'
+import { DEVICE, demoHealth, diff, drafts, happyRoutes, health, jsonResponse, liveRoutes, mockFetch, mineOverview, seedSettings, shops, walk, walkBefore, type Routes } from '../test/fixtures'
 import { dayKey } from '../components/WalkCalendar'
 
 function renderAt(path: string) {
@@ -457,9 +457,18 @@ describe('Заказы', () => {
     expect(total).toHaveTextContent('≈')
   })
   it('пусто, когда заказывать нечего', async () => {
-    mockFetch({ ...happyRoutes, '/walks/demo-tue/diff': () => jsonResponse({ ...diff, changes: diff.changes.map((c) => ({ ...c, suggested_order: 0 })) }) })
+    mockFetch({ ...happyRoutes, '/orders/drafts?walk_id=demo-tue': () => jsonResponse({ ...drafts, drafts: [], total: 0 }) })
     renderAt('/app/orders')
     expect(await screen.findByTestId('empty-state')).toHaveTextContent('Заказы собираются')
+  })
+  it('черновики сгруппированы по поставщикам, с днём доставки и итогом по каждому', async () => {
+    mockFetch(happyRoutes)
+    renderAt('/app/orders')
+    const groups = await screen.findAllByTestId('supplier-group')
+    expect(groups.map((g) => g.getAttribute('data-supplier'))).toEqual(['aksuu', 'alatoo'])
+    expect(groups[1]).toHaveTextContent('доставка вторник')
+    expect(screen.getByTestId('group-total-alatoo')).toHaveAttribute('aria-label', expect.stringMatching(/^3\s400\sсом/))
+    expect(screen.getByTestId('order-total')).toHaveAttribute('aria-label', expect.stringMatching(/^5\s680\sсом/))
   })
 })
 
@@ -593,11 +602,13 @@ describe('Уведомления, система, агент, оболочка',
     expect(screen.getByTestId('data-switch')).toHaveAttribute('data-state', 'down')
   })
 
-  it('агент: правила', async () => {
+  it('агент: приветствие с потерями, правила и поставщики', async () => {
     mockFetch(happyRoutes)
     renderAt('/app/agent')
-    expect(await screen.findByText(/Агент ещё не подключён/)).toBeInTheDocument()
-    expect(screen.getAllByRole('listitem')).toHaveLength(4)
+    await waitFor(() => expect(screen.getByTestId('msg-agent')).toHaveTextContent(/765\sсом в день/))
+    expect(await screen.findByTestId('rules-card')).toHaveTextContent('Ваши правила')
+    expect(screen.getByTestId('suppliers-card')).toHaveTextContent('Ак-Суу')
+    expect(screen.getByTestId('run-agent')).toBeEnabled()
   })
 
   it('офлайн-баннер при потере сети', async () => {
