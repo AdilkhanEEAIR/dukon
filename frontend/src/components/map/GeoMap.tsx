@@ -18,6 +18,11 @@ type MapState = 'loading' | 'ready' | 'error'
 
 const LOAD_TIMEOUT_MS = 12_000
 
+/** Сенсорный экран: жесты карты не должны мешать прокрутке страницы одним пальцем. */
+export function isTouch(): boolean {
+  return typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0)
+}
+
 /** Ошибка плитки, шрифта или значка приходит с sourceId/tile — карта при этом работает, закрывать её нельзя.
  *  Фатальна только ошибка самого стиля до первой загрузки. */
 function isStyleError(e: unknown): boolean {
@@ -63,9 +68,10 @@ function useMap(container: RefObject<HTMLDivElement | null>, center: GeoPoint, z
           center: [conf.center.lng, conf.center.lat],
           zoom: conf.zoom,
           attributionControl: false,
-          // Колесо мыши над картой не должно уводить страницу: прокрутка страницы важнее.
-          cooperativeGestures: false,
-          scrollZoom: false,
+          // Колесо мыши приближает карту; на телефоне MapLibre сам просит «два пальца», чтобы карта
+          // не ловила прокрутку страницы одним пальцем (cooperativeGestures), а на ПК колесо работает без Ctrl.
+          cooperativeGestures: isTouch(),
+          scrollZoom: true,
           dragRotate: false,
           pitchWithRotate: false,
         })
