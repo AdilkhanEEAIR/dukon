@@ -62,6 +62,16 @@ class ShelfItem(BaseModel):
     price_text: str = ""
     boxes: list[Box] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Модель не уверена (низкая уверенность или штуки посчитаны без рамок) — хозяину стоит взглянуть самому.
+    needs_review: bool = False
+
+
+class Concept(BaseModel):
+    """Что искать на фото: короткое английское слово для SAM и подпись для человека."""
+
+    query: str = Field(description="Конкретное существительное для SAM, например 'chocolate bar'")
+    label: str = Field(default="", description="Как это назвать хозяину: «шоколадные батончики»")
+    boxes: int = Field(default=0, ge=0, description="Сколько рамок SAM нашёл по этому слову")
 
 
 class Shelf(BaseModel):
@@ -83,6 +93,18 @@ class PhotoAnalysis(BaseModel):
     shelves: list[Shelf] = Field(default_factory=list)
     model_calls: int = 0
     notes: list[str] = Field(default_factory=list)
+    # Как получены штуки: по рамкам SAM, подсчётом Spark без рамок (страховка) или никак.
+    evidence: Literal["boxes", "model_count", "none"] = "boxes"
+    # Что Spark велел искать и сколько рамок дало каждое слово — видно, как две модели работали в паре.
+    concepts: list[Concept] = Field(default_factory=list)
+    # Рамки ценников: на экране показываем их отдельным цветом как доказательство прочитанных цен.
+    price_tags: list[Box] = Field(default_factory=list)
+    # Сколько секунд заняли модели — честная цифра для отчёта и для README.
+    seconds: float = 0.0
+
+    @property
+    def items(self) -> list[ShelfItem]:
+        return [item for s in self.shelves for item in s.items]
 
 
 class Walk(BaseModel):
