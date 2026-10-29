@@ -272,6 +272,15 @@ describe('Полки и товар', () => {
     expect((fn.mock.calls as [string][]).some(([u]) => u.includes('/walks?source=demo&shop_id=demo-chuy'))).toBe(true)
   })
 
+  it('обход без единого товара: честное «не распознано», а не «всё в порядке»', async () => {
+    const empty = { ...walkBefore, id: 'live-empty', photos: [{ ...walkBefore.photos[0], shelves: [], evidence: 'none', notes: ['Товары на фото не найдены'] }] }
+    mockFetch({ ...happyRoutes, '/walks/live-empty': () => jsonResponse(empty), '/walks/live-empty/diff': () => jsonResponse({ ...diff, walk_before_id: null, walk_after_id: 'live-empty', changes: [], changed: 0, out_of_stock: 0, low_stock: 0, price_mismatch: 0, loss_per_day: 0, total_items: 0 }) })
+    renderAt('/app/shelves/live-empty')
+    expect(await screen.findByText('Товары не распознаны')).toBeInTheDocument()
+    expect(screen.queryByText('Здесь пусто')).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('empty-state')).getByRole('link', { name: /начать обход/i })).toHaveAttribute('href', '/app/scan')
+  })
+
   it('календарь: неделя вкладками, день с обходом открывает его отчёт, месяц — по кнопке', async () => {
     mockFetch(happyRoutes)
     renderAt('/app/shelves/demo-tue')
