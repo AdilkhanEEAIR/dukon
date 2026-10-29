@@ -114,6 +114,7 @@ export interface Budget {
   est_spend_usd: number
   errors_today: number
   last_error: string | null
+  agent_steps_today?: number
 }
 
 export interface Health {
@@ -126,4 +127,190 @@ export interface Health {
   live_calls_today: number
   live_calls_per_day_total: number
   budget: Budget
+  /** Голос работает только с ключом моделей: без него кнопка микрофона использует распознавание браузера. */
+  voice_enabled?: boolean
+  models?: { vision: string; reader: string; agent: string; voice: string }
+}
+
+// ---- заказы, поставщики, правила, агент (заходы 3–4). Схемы: backend/app/domain/schemas.py
+
+export type Category = 'drinks' | 'dairy' | 'snacks' | 'bread' | 'grocery'
+
+export interface Discount {
+  min_units: number
+  pct: number
+}
+
+export interface Supplier {
+  id: string
+  name: string
+  /** Название для нерусского интерфейса (английское). */
+  name_en?: string
+  categories: Category[]
+  contact: string
+  phone: string
+  /** 0 — понедельник … 6 — воскресенье. */
+  delivery_days: number[]
+  min_order_kgs: number
+  pack_size: number
+  discounts: Discount[]
+  out_of_stock: string[]
+}
+
+export interface Rules {
+  max_order_total_kgs: number
+  max_stock_days: number
+  max_line_units: number
+  no_dairy_on: number[]
+  banned_suppliers: string[]
+  min_discount_for_upsize_pct: number
+}
+
+export type RuleName = 'banned_supplier' | 'max_line_units' | 'max_stock_days' | 'min_discount_for_upsize' | 'no_dairy_on' | 'max_order_total'
+
+export interface Violation {
+  rule: RuleName
+  message: string
+  sku: string | null
+  limit: number | null
+  actual: number | null
+  fix: string
+}
+
+export interface DraftLine {
+  sku: string
+  name: string
+  qty: number
+  unit_price: number | null
+  suggested: number
+  on_hand: number
+  velocity_per_day: number
+  category: Category
+}
+
+export interface SupplierDraft {
+  supplier_id: string
+  supplier_name: string
+  supplier_name_en?: string
+  lines: DraftLine[]
+  total: number
+  delivery_day: number | null
+  discount_pct: number
+  notes: string[]
+}
+
+export interface DraftsResponse {
+  walk_id: string
+  shop_id: string | null
+  drafts: SupplierDraft[]
+  total: number
+  rules: Rules
+}
+
+export type AgentEventKind = 'start' | 'thought' | 'tool_call' | 'verifier_ok' | 'verifier_block' | 'supplier_reply' | 'fix' | 'skip' | 'final' | 'error'
+
+export interface DraftPayload {
+  supplier_id: string
+  supplier_name: string
+  supplier_name_en?: string
+  delivery_day: number | null
+  delivery_day_name: string | null
+  discount_pct: number
+  total: number
+  lines: { sku: string; name: string; qty: number; unit_price: number | null; sum: number }[]
+}
+
+export interface SupplierReplyPayload {
+  message: string
+  accepted: { sku: string; name: string; qty: number }[]
+  rejected: { sku: string; name: string }[]
+  discount_pct: number
+  delivery_day: number | null
+  min_order_ok: boolean
+  offers: Discount[]
+}
+
+export interface AgentEvent {
+  step: number
+  kind: AgentEventKind
+  at: string
+  text: string
+  supplier_id: string | null
+  data: {
+    tool?: string
+    args?: Record<string, unknown>
+    status?: string
+    violations?: Violation[]
+    draft?: DraftPayload
+    order?: DraftPayload
+    reply?: SupplierReplyPayload
+    error?: string
+    sku?: string
+    name?: string
+    [key: string]: unknown
+  }
+}
+
+export interface AgentResult {
+  orders: SupplierDraft[]
+  skipped: { sku: string; name: string; reason: string }[]
+  total: number
+  summary: string
+  blocks: number
+  fixes: number
+}
+
+export type RunSource = 'live' | 'demo' | 'mock'
+export type RunStatus = 'running' | 'done' | 'failed'
+
+export interface AgentRun {
+  id: string
+  created_at: string
+  walk_id: string
+  shop_id: string | null
+  source: RunSource
+  status: RunStatus
+  model: string
+  steps: number
+  events: AgentEvent[]
+  result: AgentResult | null
+  error: string | null
+}
+
+export interface Order {
+  id: string
+  created_at: string
+  shop_id: string | null
+  walk_id: string
+  run_id: string | null
+  supplier_id: string
+  supplier_name: string
+  supplier_name_en?: string
+  lines: DraftLine[]
+  total: number
+  delivery_day: number | null
+  status: 'approved' | 'sent'
+  message: string
+  whatsapp_url: string
+}
+
+export type ChatAction = { type: 'update_rules'; rules?: Rules; patch?: Partial<Rules> } | { type: 'start_run' }
+
+export interface ChatMessage {
+  role: 'user' | 'agent'
+  text: string
+  at: string
+  action?: ChatAction | null
+}
+
+export interface ChatOut {
+  reply: ChatMessage
+  rules: Rules | null
+}
+
+export interface Transcript {
+  text: string
+  duration_ms: number
+  model: string
+  at: string
 }

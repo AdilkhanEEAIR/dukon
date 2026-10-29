@@ -2,9 +2,27 @@
 // страницы показывают причину, а не «что-то пошло не так».
 // Если сервер лежит, демо-запросы отвечаются из встроенного снимка: сайт не превращается в страницу ошибки.
 
-import type { BranchSummary, Health, Shop, Walk, WalkDiff, WalkSource } from './types'
-import { demoRoute, offlineAnswer } from '../demo/offline'
+import type {
+  AgentEvent,
+  AgentRun,
+  BranchSummary,
+  ChatMessage,
+  ChatOut,
+  DraftsResponse,
+  Health,
+  Order,
+  Rules,
+  Shop,
+  Supplier,
+  SupplierDraft,
+  Transcript,
+  Walk,
+  WalkDiff,
+  WalkSource,
+} from './types'
+import { demoRoute, offlineAnswer, offlineRunEvents } from '../demo/offline'
 import { beginActivity, endActivity } from '../lib/activity'
+import { readSse } from '../lib/sse'
 
 export const API_BASE: string = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? 'http://localhost:8000'
 
@@ -28,16 +46,23 @@ export type ErrorCode =
   | 'too_many_shops'
   | 'shop_not_found'
   | 'validation'
+  | 'rules_violation'
+  | 'voice_unavailable'
+  | 'bad_audio'
+  | 'empty_order'
 
 export class ApiError extends Error {
   code: ErrorCode
   status: number
   retryable: boolean
-  constructor(code: ErrorCode, message: string, status = 0, retryable = false) {
+  /** Подробности от сервера (например, нарушения правил при утверждении заказа). */
+  detail: Record<string, unknown> | null
+  constructor(code: ErrorCode, message: string, status = 0, retryable = false, detail: Record<string, unknown> | null = null) {
     super(message)
     this.code = code
     this.status = status
     this.retryable = retryable
+    this.detail = detail
   }
 }
 
@@ -45,6 +70,7 @@ export const ERROR_CODES: ErrorCode[] = [
   'network', 'timeout', 'not_found', 'demo_key_required', 'live_disabled', 'rate_limited', 'daily_budget',
   'bad_image', 'file_too_large', 'too_many_photos', 'auth', 'billing', 'bad_model_output', 'api', 'unknown',
   'device_required', 'too_many_shops', 'shop_not_found', 'validation',
+  'rules_violation', 'voice_unavailable', 'bad_audio', 'empty_order',
 ]
 
 const KNOWN_CODES = new Set<string>(ERROR_CODES)
@@ -74,9 +100,11 @@ export function isServerDown(err: unknown): boolean {
 
 async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 90_000): Promise<T> {
   const isHealth = path.startsWith('/health')
-  const route = (init.method ?? 'GET').toUpperCase() === 'GET' ? demoRoute(path) : null
+  const method = (init.method ?? 'GET').toUpperCase()
+  const route = demoRoute(path, method)
+  const body = typeof init.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined
   if (route && serverDown) {
-    const answer = await offlineAnswer(route)
+    const answer = await offlineAnswer(route, body)
     if (answer !== undefined) return answer as T
   }
   // Фоновую проверку /health в полосе загрузки не показываем: она идёт по таймеру и только мелькала бы.
@@ -88,7 +116,7 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 90_0
     if (isServerDown(err) || (route && err instanceof ApiError && err.status === 503)) {
       if (!isHealth) failureListeners.forEach((cb) => cb())
       if (route) {
-        const answer = await offlineAnswer(route)
+        const answer = await offlineAnswer(route, body)
         if (answer !== undefined) return answer as T
       }
     }
@@ -121,14 +149,16 @@ async function toApiError(res: Response): Promise<ApiError> {
   } catch {
     /* тело не JSON — ниже подставим код по статусу */
   }
-  const detail = (body as { detail?: { code?: string; message?: string; retryable?: boolean } } | null)?.detail
+  const detail = (body as { detail?: { code?: string; message?: string; retryable?: boolean } & Record<string, unknown> } | null)?.detail
   const rawCode = detail?.code ?? (res.status === 404 ? 'not_found' : 'unknown')
   const code: ErrorCode = KNOWN_CODES.has(rawCode) ? (rawCode as ErrorCode) : 'unknown'
-  return new ApiError(code, detail?.message ?? code, res.status, detail?.retryable ?? res.status >= 500)
+  return new ApiError(code, detail?.message ?? code, res.status, detail?.retryable ?? res.status >= 500, detail ?? null)
 }
 
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body), headers: { 'content-type': 'application/json' } })
 const device = (id: string) => ({ 'x-device-id': id })
+/** Заголовки запроса: код устройства — только если он есть (демо-магазины открыты без него). */
+const withDevice = (deviceId?: string, extra: Record<string, string> = {}) => ({ ...extra, ...(deviceId ? device(deviceId) : {}) })
 
 function query(params: Record<string, string | undefined>): string {
   const q = Object.entries(params).filter(([, v]) => v !== undefined && v !== '') as [string, string][]
@@ -157,6 +187,40 @@ export const api = {
   overview: (scope: 'mine' | 'demo', deviceId?: string) =>
     request<BranchSummary[]>(`/branches/overview${query({ scope })}`, deviceId ? { headers: device(deviceId) } : {}),
 
+  // ---- заказы, правила, агент, голос
+  suppliers: () => request<Supplier[]>('/suppliers'),
+  rules: (shopId: string | null, deviceId?: string) => request<Rules>(`/rules${query({ shop_id: shopId ?? undefined })}`, { headers: withDevice(deviceId) }),
+  saveRules: (shopId: string | null, rules: Rules, deviceId?: string) => {
+    const init = json(rules)
+    return request<Rules>(`/rules${query({ shop_id: shopId ?? undefined })}`, { ...init, method: 'PUT', headers: withDevice(deviceId, init.headers as Record<string, string>) })
+  },
+  drafts: (walkId: string, deviceId?: string) => request<DraftsResponse>(`/orders/drafts${query({ walk_id: walkId })}`, { headers: withDevice(deviceId) }),
+  runAgent: (walkId: string, opts: { lang: string; deviceId?: string; demoKey?: string; brain?: 'auto' | 'script' | 'spark' }) =>
+    request<AgentRun>(`/agent/run${query({ walk_id: walkId, lang: opts.lang, brain: opts.brain })}`, {
+      method: 'POST',
+      headers: withDevice(opts.deviceId, opts.demoKey ? { 'x-demo-key': opts.demoKey } : {}),
+    }),
+  run: (id: string) => request<AgentRun>(`/agent/runs/${encodeURIComponent(id)}`),
+  latestRun: (walkId: string) => request<AgentRun | null>(`/agent/runs/latest${query({ walk_id: walkId })}`),
+  chat: (body: { message: string; walk_id?: string | null; shop_id?: string | null; lang: string; history: ChatMessage[] }, opts: { deviceId?: string; demoKey?: string } = {}) => {
+    const init = json(body)
+    return request<ChatOut>('/agent/chat', { ...init, method: 'POST', headers: withDevice(opts.deviceId, { ...(init.headers as Record<string, string>), ...(opts.demoKey ? { 'x-demo-key': opts.demoKey } : {}) }) }, 60_000)
+  },
+  approve: (body: { walk_id: string; run_id?: string | null; drafts: SupplierDraft[] }, deviceId?: string) => {
+    const init = json(body)
+    return request<Order[]>('/orders/approve', { ...init, method: 'POST', headers: withDevice(deviceId, init.headers as Record<string, string>) })
+  },
+  orders: (shopId: string | null, walkId?: string, deviceId?: string) =>
+    request<Order[]>(`/orders${query({ shop_id: shopId ?? undefined, walk_id: walkId })}`, { headers: withDevice(deviceId) }),
+  markSent: (orderId: string, deviceId?: string) => request<Order>(`/orders/${encodeURIComponent(orderId)}/sent`, { method: 'POST', headers: withDevice(deviceId) }),
+  transcribe: (wav: Blob, opts: { lang: string; keywords: string[]; demoKey: string }) => {
+    const form = new FormData()
+    form.append('audio', wav, 'voice.wav')
+    form.append('lang', opts.lang)
+    form.append('keywords', opts.keywords.join('|'))
+    return request<Transcript>('/voice/transcribe', { method: 'POST', body: form, headers: { 'x-demo-key': opts.demoKey } }, 60_000)
+  },
+
   analyze: (files: File[], opts: { demoKey: string; label?: string; shopId?: string; deviceId?: string }) => {
     const form = new FormData()
     for (const f of files) form.append('photos', f, f.name)
@@ -164,6 +228,37 @@ export const api = {
     if (opts.deviceId) headers['x-device-id'] = opts.deviceId
     return request<Walk>(`/walks/analyze${query({ label: opts.label, shop_id: opts.shopId })}`, { method: 'POST', body: form, headers }, 180_000)
   },
+}
+
+/** Поток событий прогона: события приходят по одному, в конце — прогон целиком. Без сервера — повтор из снимка. */
+export async function streamRun(run: AgentRun, onEvent: (ev: AgentEvent) => void, signal?: AbortSignal): Promise<AgentRun> {
+  const offline = await offlineRunEvents(run.id)
+  if (offline) {
+    for (const ev of offline.events) {
+      if (signal?.aborted) break
+      onEvent(ev)
+    }
+    return offline
+  }
+  let final: AgentRun | null = null
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/agent/runs/${encodeURIComponent(run.id)}/events`, { signal })
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw new ApiError('timeout', 'timeout', 0, true)
+    throw new ApiError('network', 'network', 0, true)
+  }
+  if (!res.ok) throw await toApiError(res)
+  await readSse(
+    res,
+    (frame) => {
+      if (frame.event === 'done') final = { ...run, ...(JSON.parse(frame.data) as Partial<AgentRun>) }
+      else if (frame.event !== 'timeout') onEvent(JSON.parse(frame.data) as AgentEvent)
+    },
+    signal,
+  )
+  // Поток оборвался без «done» (сервер перезапустился, таймаут) — добираем прогон обычным запросом.
+  return final ?? (await api.run(run.id))
 }
 
 /** Код ошибки для словаря: страницы берут заголовок и подсказку через t(`errors.${code}.title`). */
