@@ -31,3 +31,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.log
+
+data/bench/
+data/photos/
+data/probe/
