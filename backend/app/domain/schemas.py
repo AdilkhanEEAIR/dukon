@@ -217,3 +217,191 @@ class BranchSummary(BaseModel):
     low_stock: int = 0
     price_mismatch: int = 0
     loss_per_day: float = 0.0
+
+
+# ---- заказы, поставщики, правила и агент (заходы 3–4)
+
+
+class Category(str, Enum):
+    DRINKS = "drinks"
+    DAIRY = "dairy"
+    SNACKS = "snacks"
+    BREAD = "bread"
+    GROCERY = "grocery"
+
+
+class Discount(BaseModel):
+    """Скидка от объёма: с min_units штук в заказе этого поставщика цена ниже на pct процентов."""
+
+    min_units: int = Field(ge=1)
+    pct: float = Field(ge=0, le=100)
+
+
+class Supplier(BaseModel):
+    id: str
+    name: str
+    # Название для английского интерфейса: судьи читают по-английски, а товары и поставщики — местные.
+    name_en: str = ""
+    categories: list[Category]
+    contact: str = ""
+    phone: str = ""
+    # Дни доставки: 0 — понедельник … 6 — воскресенье. Поставщик привозит только в эти дни.
+    delivery_days: list[int] = Field(default_factory=list)
+    min_order_kgs: float = 0.0
+    pack_size: int = Field(default=1, ge=1)
+    discounts: list[Discount] = Field(default_factory=list)
+    # Чего нет на складе на этой неделе (нормализованные sku) — для симулятора ответов.
+    out_of_stock: list[str] = Field(default_factory=list)
+
+
+class Rules(BaseModel):
+    """Правила хозяина. Модель их не может обойти: каждое действие проверяет код (agent/verifier.py)."""
+
+    max_order_total_kgs: float = Field(default=15000, ge=0)
+    max_stock_days: int = Field(default=14, ge=1, le=90)
+    max_line_units: int = Field(default=120, ge=1)
+    # Дни недели, на которые нельзя заказывать молочку (0 — понедельник … 6 — воскресенье).
+    no_dairy_on: list[int] = Field(default_factory=lambda: [4])
+    banned_suppliers: list[str] = Field(default_factory=list)
+    # Брать больше, чем нужно, можно только ради скидки не меньше этой.
+    min_discount_for_upsize_pct: float = Field(default=7, ge=0, le=100)
+
+    @field_validator("no_dairy_on")
+    @classmethod
+    def _weekday(cls, v: list[int]) -> list[int]:
+        bad = [d for d in v if d < 0 or d > 6]
+        if bad:
+            raise ValueError("день недели от 0 до 6")
+        return sorted(set(v))
+
+
+class Violation(BaseModel):
+    """Нарушение правила: какое, у какой строки, что можно сделать."""
+
+    rule: str
+    message: str
+    sku: str | None = None
+    limit: float | None = None
+    actual: float | None = None
+    fix: str = ""
+
+
+class DraftLine(BaseModel):
+    sku: str
+    name: str
+    qty: int = Field(ge=0)
+    unit_price: float | None = None
+    suggested: int = 0
+    on_hand: int = 0
+    velocity_per_day: float = 0.0
+    category: Category = Category.GROCERY
+
+    @property
+    def sum(self) -> float:
+        return round(self.qty * (self.unit_price or 0.0), 2)
+
+
+class SupplierDraft(BaseModel):
+    """Черновик заказа одному поставщику."""
+
+    supplier_id: str
+    supplier_name: str
+    supplier_name_en: str = ""
+    lines: list[DraftLine]
+    total: float = 0.0
+    delivery_day: int | None = None
+    discount_pct: float = 0.0
+    notes: list[str] = Field(default_factory=list)
+
+
+class DraftsResponse(BaseModel):
+    walk_id: str
+    shop_id: str | None
+    drafts: list[SupplierDraft]
+    total: float
+    rules: Rules
+
+
+class SupplierReply(BaseModel):
+    """Ответ поставщика (симулятор): что принято, чего нет, какая скидка, когда привезут."""
+
+    supplier_id: str
+    accepted: list[DraftLine]
+    rejected: list[DraftLine]
+    discount_pct: float = 0.0
+    delivery_day: int | None = None
+    min_order_ok: bool = True
+    message: str = ""
+    offers: list[Discount] = Field(default_factory=list)
+
+
+class AgentEvent(BaseModel):
+    """Одна запись журнала решений. Фронт показывает их по одной, блокировки правилом — крупно."""
+
+    step: int
+    kind: Literal[
+        "start",
+        "thought",
+        "tool_call",
+        "verifier_ok",
+        "verifier_block",
+        "supplier_reply",
+        "fix",
+        "skip",
+        "final",
+        "error",
+    ]
+    at: datetime = Field(default_factory=utcnow)
+    text: str = ""
+    supplier_id: str | None = None
+    data: dict = Field(default_factory=dict)
+
+
+class AgentResult(BaseModel):
+    orders: list[SupplierDraft] = Field(default_factory=list)
+    skipped: list[dict] = Field(default_factory=list)
+    total: float = 0.0
+    summary: str = ""
+    blocks: int = 0
+    fixes: int = 0
+
+
+class AgentRun(BaseModel):
+    id: str
+    created_at: datetime = Field(default_factory=utcnow)
+    walk_id: str
+    shop_id: str | None = None
+    source: Literal["live", "demo", "mock"] = "mock"
+    status: Literal["running", "done", "failed"] = "running"
+    model: str = ""
+    steps: int = 0
+    events: list[AgentEvent] = Field(default_factory=list)
+    result: AgentResult | None = None
+    error: str | None = None
+
+
+class Order(BaseModel):
+    """Утверждённый заказ: хозяин нажал «Отправить», сообщение поставщику готово."""
+
+    id: str
+    created_at: datetime = Field(default_factory=utcnow)
+    shop_id: str | None
+    walk_id: str
+    run_id: str | None = None
+    supplier_id: str
+    supplier_name: str
+    supplier_name_en: str = ""
+    lines: list[DraftLine]
+    total: float
+    delivery_day: int | None = None
+    status: Literal["approved", "sent"] = "approved"
+    message: str = ""
+    whatsapp_url: str = ""
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "agent"]
+    text: str
+    at: datetime = Field(default_factory=utcnow)
+    # Что агент сделал в ответ: изменил правило, запустил заказ, показал цифры.
+    action: dict | None = None
