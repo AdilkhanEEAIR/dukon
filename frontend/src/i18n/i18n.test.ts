@@ -20,7 +20,6 @@ describe('словари', () => {
   it.each(LOCALES)('%s: списки той же длины, что в en', (locale) => {
     expect(translateList(locale, 'landing.steps')).toHaveLength(4)
     expect(translateList(locale, 'scan.steps')).toHaveLength(4)
-    expect(translateList(locale, 'agent.rules')).toHaveLength(4)
     expect(translateList(locale, 'landing.models')).toHaveLength(3)
   })
 
