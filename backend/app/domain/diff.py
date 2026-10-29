@@ -20,16 +20,102 @@ MIN_VELOCITY = 0.05
 ORDER_HORIZON_DAYS = 14
 
 
+# Единицы измерения в одном написании: модель пишет то «1L», то «1 л», то «80гр».
+_UNITS = {
+    "l": "л",
+    "ltr": "л",
+    "лит": "л",
+    "ml": "мл",
+    "g": "г",
+    "gr": "г",
+    "гр": "г",
+    "kg": "кг",
+    "pcs": "шт",
+    "pc": "шт",
+    "rolls": "рул",
+    "roll": "рул",
+}
+_UNIT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(кг|kg|мл|ml|л|l|ltr|лит|гр|г|g|gr|шт|pcs|pc|рул|rolls|roll)\b")
+# Слова, которые ничего не говорят о товаре: по ним нельзя различать и нельзя склеивать.
+_STOP = {"и", "с", "в", "на", "the", "of", "and", "with", "x", "х", "г", "мл", "л", "кг", "шт", "рул"}
+# Веса/объёмы считаем одинаковыми, если расходятся не больше чем на эту долю (80 г и 81 г — один батончик).
+WEIGHT_TOLERANCE = 0.06
+PRICE_TOLERANCE = 0.02
+
+
 def normalize_sku(name: str) -> str:
-    """Делает из названия устойчивый ключ: без регистра, пунктуации и лишних пробелов.
+    """Делает из названия устойчивый ключ: без регистра, пунктуации, с едиными единицами.
 
     Модель может назвать товар «Coca-Cola 1L» в одном обходе и «кока-кола 1 л» в другом.
     Ключ должен совпасть хотя бы для одинаковых написаний.
     """
-    s = name.lower().replace("ё", "е")
-    s = re.sub(r"[^\w\s]", " ", s, flags=re.UNICODE)
-    s = re.sub(r"\s+", " ", s).strip()
+    s = name.lower().replace("ё", "е").replace(",", ".")
+    s = re.sub(r"[^\w\s.]", " ", s, flags=re.UNICODE)
+    s = re.sub(r"(?<=\d)\.(?!\d)", " ", s)  # точка после числа — не десятичная
+    s = _UNIT_RE.sub(lambda m: f"{m.group(1)} {_UNITS.get(m.group(2), m.group(2))}", s)
+    s = re.sub(r"\s+", " ", s).strip(" .")
     return s
+
+
+def product_signature(name: str) -> tuple[frozenset[str], tuple[str, float] | None]:
+    """Слова товара без веса и мусора + сам вес/объём в граммах или миллилитрах."""
+    key = normalize_sku(name)
+    weight: tuple[str, float] | None = None
+    match = _UNIT_RE.search(key)
+    if match:
+        value = float(match.group(1))
+        unit = _UNITS.get(match.group(2), match.group(2))
+        if unit == "кг":
+            weight = ("g", value * 1000)
+        elif unit == "г":
+            weight = ("g", value)
+        elif unit == "л":
+            weight = ("ml", value * 1000)
+        elif unit == "мл":
+            weight = ("ml", value)
+        else:
+            weight = (unit, value)
+    # Остальные числа с единицами («4x25 г» внутри «100 г (4x25 г)») — тоже не слова товара.
+    key = _UNIT_RE.sub(" ", key)
+    words = frozenset(w for w in key.split() if w not in _STOP and not re.fullmatch(r"[\d.]+[xх]", w))
+    return words, weight
+
+
+def same_product(a: ShelfItem, b: ShelfItem) -> bool:
+    """Один ли это товар, если модель назвала его чуть иначе.
+
+    «Snickers 80 г» и «Snickers Больше арахиса 81 г» по 103 сома — один товар.
+    «Snickers 80 г» за 103 и «Snickers Super 80 г» за 89.9 — разные: слов больше и цена другая.
+    """
+    words_a, weight_a = product_signature(a.name)
+    words_b, weight_b = product_signature(b.name)
+    if not words_a or not words_b:
+        return False
+    if weight_a and weight_b:
+        if weight_a[0] != weight_b[0]:
+            return False
+        if abs(weight_a[1] - weight_b[1]) > WEIGHT_TOLERANCE * max(weight_a[1], weight_b[1]):
+            return False
+    price_same = (
+        a.price is not None
+        and b.price is not None
+        and abs(a.price - b.price) <= PRICE_TOLERANCE * max(a.price, b.price)
+    )
+    if words_a == words_b:
+        return True
+    # Одно название — часть другого (бренд без варианта): склеиваем только при одинаковой цене,
+    # иначе рискуем сложить два разных вкуса одной линейки.
+    return (words_a <= words_b or words_b <= words_a) and price_same
+
+
+def _add_into(prev: ShelfItem, item: ShelfItem) -> None:
+    prev.count += item.count
+    prev.boxes = prev.boxes + item.boxes
+    if prev.price is None and item.price is not None:
+        prev.price = item.price
+        prev.price_text = item.price_text
+    prev.confidence = max(prev.confidence, item.confidence)
+    prev.needs_review = prev.needs_review or item.needs_review
 
 
 def _merge_items(walk: Walk) -> dict[str, ShelfItem]:
@@ -38,17 +124,37 @@ def _merge_items(walk: Walk) -> dict[str, ShelfItem]:
     for item in walk.items:
         key = item.sku or normalize_sku(item.name)
         if key in merged:
-            prev = merged[key]
-            prev.count += item.count
-            prev.boxes = prev.boxes + item.boxes
-            if prev.price is None and item.price is not None:
-                prev.price = item.price
-                prev.price_text = item.price_text
-            prev.confidence = max(prev.confidence, item.confidence)
-        else:
-            merged[key] = item.model_copy(deep=True)
-            merged[key].sku = key
+            _add_into(merged[key], item)
+            continue
+        twin = next((k for k, v in merged.items() if same_product(v, item)), None)
+        if twin is not None:
+            _add_into(merged[twin], item)
+            continue
+        merged[key] = item.model_copy(deep=True)
+        merged[key].sku = key
     return merged
+
+
+def match_previous(before_items: dict[str, ShelfItem], after_items: dict[str, ShelfItem]) -> dict[str, str]:
+    """Ключ прошлого обхода для каждой нынешней позиции: точное совпадение, иначе тот же товар под другим именем.
+
+    Возвращает {ключ сейчас: ключ раньше}. Ключ прошлого обхода остаётся именем позиции во времени —
+    так агент и заказы видят одну и ту же позицию, как бы модель её ни переназвала.
+    """
+    mapping: dict[str, str] = {}
+    taken: set[str] = set()
+    for key in after_items:
+        if key in before_items:
+            mapping[key] = key
+            taken.add(key)
+    for key, cur in after_items.items():
+        if key in mapping:
+            continue
+        twin = next((k for k, v in before_items.items() if k not in taken and same_product(v, cur)), None)
+        if twin is not None:
+            mapping[key] = twin
+            taken.add(twin)
+    return mapping
 
 
 def hours_between(before: Walk | None, after: Walk) -> float:
@@ -86,8 +192,10 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
     counts = defaultdict(int)
     loss_total = 0.0
 
+    mapping = match_previous(before_items, after_items)
     for key, cur in after_items.items():
-        prev = before_items.get(key)
+        prev_key = mapping.get(key)
+        prev = before_items.get(prev_key) if prev_key else None
         before_count = prev.count if prev else None
         sold = max(before_count - cur.count, 0) if before_count is not None else 0
         velocity = _velocity(sold, hours)
@@ -119,7 +227,8 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
         reason = _reason(status, before_count, cur.count, velocity, days_left, price_before, price_after)
         changes.append(
             ItemChange(
-                sku=key,
+                # Ключ прошлого обхода держим как имя позиции во времени, даже если модель переназвала товар.
+                sku=prev_key or key,
                 name=cur.name,
                 before=before_count,
                 after=cur.count,
@@ -137,8 +246,9 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
         counts[status] += 1
 
     # Товар, который был раньше, а теперь не найден вовсе — тоже «нет в наличии».
+    matched_before = set(mapping.values())
     for key, prev in before_items.items():
-        if key in after_items:
+        if key in matched_before:
             continue
         velocity = _velocity(prev.count, hours)
         loss = round(velocity * prev.price, 2) if prev.price and velocity > MIN_VELOCITY else 0.0
