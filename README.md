@@ -11,9 +11,16 @@ Built solo during the **Meta Global AI Developer Hackathon 2026** (Indie track, 
 ## How it works
 
 ```
-iPhone photos (HEIC) ─► JPEG ─► SAM 3.1 boxes ─► numbered overlay ─► Muse Spark reads each box
-                                                                        │
-                       previous walk ◄── SQLite ◄── shelves/items ◄─────┘
+iPhone photos (HEIC) ─► JPEG ─► Muse Spark scouts: "what is on this shelf?" → 1–4 nouns for SAM
+                                      │          ("chocolate bar", "toilet paper roll", "bar of soap")
+                                      ▼
+                        SAM 3.1 × each noun + "price tag"  (in parallel; boxes merged, duplicates dropped)
+                                      │
+                      no boxes? ──────┼──► Muse Spark counts without boxes, every item flagged "check"
+                                      ▼
+                        numbered overlay ─► Muse Spark reads each box: name, pack size, price in som
+                                      │
+                       previous walk ◄── SQLite ◄── shelves/items (renamed items matched by words+weight+price)
                             │
                             ▼
                    diff: sold, velocity, out-of-stock, price mismatch, loss per day
@@ -29,6 +36,26 @@ iPhone photos (HEIC) ─► JPEG ─► SAM 3.1 boxes ─► numbered overlay �
                             │
                             ▼
                    owner approves → WhatsApp message to the supplier
+```
+
+### Universal vision, not a Snickers demo
+
+SAM 3.1 answers concept prompts, and it answers only concrete nouns: on a real Bishkek shelf `packaged product`
+returned nothing, `chocolate bar` returned 40 boxes. So the pipeline never hardcodes a noun. Muse Spark looks at the
+photo first and names what is there, in SAM's language; SAM then finds every instance of each noun and every price tag;
+Spark reads the numbered boxes. If SAM finds nothing at all, Spark counts the items itself and every line is flagged
+for the owner to check — the report is never silently empty. Low-confidence lines are flagged too, and the model's own
+notes ("box 4 skipped — edge of the carton") are kept in the report.
+
+Names drift between calls ("Snickers 80 g" vs "Snickers more peanuts 81 g"), which would turn one product into
+"sold out + new item". `domain/diff.py` matches items across walks by product words, pack weight (±6 %) and price,
+and keeps the earlier key as the item's identity over time.
+
+Bench it on your own photos (uses your key, ≈4–7 model calls per photo):
+
+```powershell
+python -m scripts.bench_vision "C:\path\to\shelf-photos" --limit 8   # → data/bench/report.md + annotated JPEGs
+python -m scripts.probe_sam photo.heic --read                          # raw SAM answers per prompt
 ```
 
 ## Repository layout
