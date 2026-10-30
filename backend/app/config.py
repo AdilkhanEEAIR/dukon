@@ -30,9 +30,15 @@ class Settings(BaseSettings):
 
     # Защита живого режима: без этого кода посетитель видит только предзаписанное демо.
     demo_key: str = "dukon-judge"
+    # Без кода тоже можно попробовать — столько живых вызовов в сутки на одно устройство (0 — выключить).
+    live_trial_per_device: int = 3
+    # Кыргызского и русского у Muse Voice Transcribe нет — для них речь слушает Muse Spark с аудио на входе.
+    voice_audio_model: str = "muse-spark-1.2"
+    voice_audio_langs: str = "ky,ru"
     # Лимиты, чтобы чужой трафик не сжёг кредиты: вызовов в час с одного адреса и в сутки всего.
-    live_calls_per_hour_per_ip: int = 6
-    live_calls_per_day_total: int = 60
+    # Судья за сессию делает десятки вызовов (обходы, голос, разговор): час — 120, сутки на всех — 600.
+    live_calls_per_hour_per_ip: int = 120
+    live_calls_per_day_total: int = 600
 
     # Оценка стоимости одного обхода в долларах (SAM + Spark на 3–6 фото). Уточним по Billing.
     est_usd_per_walk: float = 0.12
@@ -54,6 +60,10 @@ class Settings(BaseSettings):
     @property
     def cors_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def voice_audio_lang_set(self) -> set[str]:
+        return {x.strip() for x in self.voice_audio_langs.split(",") if x.strip()}
 
     @property
     def live_enabled(self) -> bool:

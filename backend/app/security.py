@@ -46,19 +46,39 @@ def today_key() -> str:
     return "live_calls:" + datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def guard_live(request: Request, settings: Settings, storage: Storage, limiter: RateLimiter) -> None:
-    """Пускает в живой режим только с кодом, в пределах лимитов и при включённом провайдере."""
+def trial_key(device: str) -> str:
+    return f"trial:{device}:" + datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def guard_live(
+    request: Request,
+    settings: Settings,
+    storage: Storage,
+    limiter: RateLimiter,
+    require_key: bool = True,
+    trial: bool = False,
+) -> None:
+    """Пускает в живой режим с кодом, в пределах лимитов и при включённом провайдере.
+
+    Обходам (trial=True) без кода даём пару пробных вызовов в сутки на устройство: судье хватит
+    почувствовать продукт, а массово жечь кредиты не выйдет. Агент дороже — он только по коду.
+    Дневной потолок на всех действует всегда.
+    """
     if not settings.live_enabled:
         raise HTTPException(
             status_code=503,
             detail={"code": "live_disabled", "message": "Живой режим выключен на сервере. Доступно демо."},
         )
     key = request.headers.get("x-demo-key") or request.query_params.get("key", "")
-    if key != settings.demo_key:
-        raise HTTPException(
-            status_code=401,
-            detail={"code": "demo_key_required", "message": "Для живого режима нужен демо-код."},
-        )
+    if require_key and key != settings.demo_key:
+        device = request.headers.get("x-device-id", "")
+        allowed = trial and bool(device) and settings.live_trial_per_device > 0
+        if not allowed or storage.get_counter(trial_key(device)) >= settings.live_trial_per_device:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "demo_key_required", "message": "Для живого режима нужен демо-код."},
+            )
+        storage.increment(trial_key(device))
     if not limiter.check(client_ip(request)):
         raise HTTPException(
             status_code=429,
