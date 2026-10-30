@@ -4,7 +4,7 @@
 
 Built solo during the **Meta Global AI Developer Hackathon 2026** (Indie track, Oct 26 – Nov 4). All code in this repository was written during the hackathon.
 
-**Meta models used:** SAM 3.1 (sees: finds every product on the shelf), Muse Spark 1.3 (reads: names, counts and Kyrgyz/Russian price tags in som; thinks: the ordering agent with tool calling and the conversation), Muse Voice Transcribe 1.0 (hears: the owner talks to the agent).
+**Meta models used:** SAM 3.1 (sees: finds every product on the shelf), Muse Spark 1.3 (reads: names, counts and Kyrgyz/Russian price tags in som; thinks: the ordering agent with tool calling and the conversation), Muse Spark 1.2 with audio input (hears Kyrgyz: the owner talks to the agent), Muse Voice Transcribe 1.0 (hears the other languages).
 
 **The idea in one line:** the model proposes, the code checks, the owner approves. Every step the agent takes passes through the owner's rules in plain Python before anything is sent to a supplier — and a blocked step stays in the log with the reason, so you see the rule fire.
 
@@ -58,7 +58,7 @@ Without guards that turned into "sold 10 bars in 2 minutes" — a million som a 
 
 1. **Vocabulary.** Muse Spark gets the product names from the previous walk and is told to reuse them word for word.
 2. **Noise threshold.** A drop of one unit or under 10 % is reading noise, not a sale.
-3. **Minimum interval.** Under six hours between walks the report shows statuses but no velocity and no money.
+3. **Minimum interval.** Under six hours between walks velocity is not measured. A product that was on the shelf and is now gone is still a loss, though: for it the report takes an assumption — the facing sells out in a week — marks the number as an *estimate*, and suggests restoring the facing rather than ordering two weeks of guessed sales. Noise never becomes an estimate: it takes a real out-of-stock or low-stock status.
 4. **Capture time from EXIF.** A walk is dated by when the photos were taken, not when they were uploaded.
 
 `python -m scripts.bench_vision photo.heic --stability` runs each photo twice and diffs the two reads as walks
@@ -157,7 +157,7 @@ Owner's rules (per shop, editable in the UI or by talking to the agent): max ord
 
 Without a model key (and for demo walks) the same loop runs on a deterministic script that behaves like a greedy but teachable buyer: it reaches for a discount, orders dairy on the supplier's nearest day, gets blocked twice, fixes itself and confirms three orders. That recorded run is also bundled into the frontend snapshot, so the agent screen works even when the server is down.
 
-**Conversation and voice.** `POST /agent/chat` answers questions about the walk ("what am I losing?") and can change a rule or start the negotiation from a sentence ("no dairy on Friday", "order everything"). On the Agent screen the owner can also speak: the browser records the microphone, converts it to 16-kHz mono WAV and sends it to `POST /voice/transcribe`, which calls **Muse Voice Transcribe** (`/v1/asr/transcribe`) with the shop's product names as keyword hints. Russian and Kyrgyz are not among the model's 25 evaluated languages, so when the server has no key or the model is not available the screen falls back to the browser's own speech recognition; replies are read aloud with the browser's speech synthesis. The agent, the chat and voice are protected like live walks: judge code, per-IP limit, daily budget.
+**Conversation and voice.** `POST /agent/chat` answers questions about the walk ("what am I losing?") and can change a rule or start the negotiation from a sentence ("no dairy on Friday", "order everything"). On the Agent screen the owner can also speak — press the microphone, talk, and the recording stops by itself after a pause. Which engine listens depends on the language: **Kyrgyz** goes to **Muse Spark 1.2** with audio input (`/voice/transcribe` sends 16-kHz mono WAV plus the shop's product names and the owner's typical questions as hints — no ASR model covers Kyrgyz); **Russian** uses the browser's own recognition (Chrome's Russian is better than any cloud model and costs nothing); English and the other languages go to **Muse Voice Transcribe 1.0** (`/v1/asr/transcribe`). While the owner talks the field shows live volume bars from the microphone, and a spinner while the text is being recognised. Replies are read aloud with the browser's speech synthesis; browsers have no Kyrgyz voice, so Kyrgyz replies are read by a Kazakh voice when one is installed (Edge) and otherwise by the Russian voice with ө/ү/ң mapped to the nearest Russian letters. The agent, the chat and voice are protected like live walks: judge code, per-IP limit, daily budget.
 
 **Orders.** `GET /orders/drafts` groups the walk's recommendations by supplier (packs, delivery day, discount); the Orders screen lets the owner edit quantities, shows what the agent negotiated, and **Approve and send** creates orders with a ready WhatsApp message (`wa.me` link) per supplier. Suppliers in `backend/app/agent/suppliers.py` are sample Bishkek distributors (names and phones are placeholders).
 
