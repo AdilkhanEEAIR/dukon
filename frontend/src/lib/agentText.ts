@@ -20,11 +20,11 @@ export function weekdayName(day: number | null | undefined, locale: Locale, form
   return new Intl.DateTimeFormat(locale, { weekday: form, timeZone: 'UTC' }).format(date)
 }
 
-/** Название поставщика на языке интерфейса: по-русски и по-кыргызски — как есть, иначе английское, если оно есть. */
+/** Название поставщика на языке интерфейса: кириллические языки — как есть, иначе английское, если оно есть. */
 export function supplierTitle(obj: { supplier_name?: string; supplier_name_en?: string; name?: string; name_en?: string }, locale: Locale): string {
   const ru = obj.supplier_name ?? obj.name ?? ''
   const en = obj.supplier_name_en ?? obj.name_en ?? ''
-  return locale === 'ru' || locale === 'ky' || !en ? ru : en
+  return locale === 'ru' || locale === 'ky' || locale === 'kk' || !en ? ru : en
 }
 
 export function weekdayList(days: number[], locale: Locale): string {

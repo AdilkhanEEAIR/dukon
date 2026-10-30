@@ -1,20 +1,21 @@
 // Своя лёгкая локализация: типизированные ключи по эталонному словарю, плюрализация через Intl.
-// Библиотека тут не нужна — пять словарей и один хук; зато ошибку в ключе ловит TypeScript.
+// Библиотека тут не нужна — семь словарей и один хук; зато ошибку в ключе ловит TypeScript.
 
 import { createContext, createElement, Fragment, useCallback, useContext, useMemo, type ReactNode } from 'react'
 import { de } from './de'
 import { en, type Dict, type Plural } from './en'
 import { es } from './es'
 import { fr } from './fr'
+import { kk } from './kk'
 import { ky } from './ky'
 import { productName } from './products'
 import { ru } from './ru'
 
-export type Locale = 'en' | 'ru' | 'ky' | 'es' | 'de' | 'fr'
+export type Locale = 'en' | 'ru' | 'ky' | 'kk' | 'es' | 'de' | 'fr'
 // Порядок важен: так языки стоят в выпадающем списке. Английский первый — его видят судьи и гости.
-export const LOCALES: Locale[] = ['en', 'ru', 'ky', 'es', 'de', 'fr']
+export const LOCALES: Locale[] = ['en', 'ru', 'ky', 'kk', 'es', 'de', 'fr']
 export const DEFAULT_LOCALE: Locale = 'en'
-export const DICTS: Record<Locale, Dict> = { en, ru, ky, es, de, fr }
+export const DICTS: Record<Locale, Dict> = { en, ru, ky, kk, es, de, fr }
 
 export function isLocale(value: unknown): value is Locale {
   return typeof value === 'string' && (LOCALES as string[]).includes(value)

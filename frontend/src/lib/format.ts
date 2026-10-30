@@ -4,7 +4,7 @@
 import type { Locale } from '../i18n'
 import { decimalsFor, fromKgs, type Currency } from './currency'
 
-const SOM: Record<Locale, string> = { en: 'som', ru: 'сом', ky: 'сом', es: 'som', de: 'Som', fr: 'som' }
+const SOM: Record<Locale, string> = { en: 'som', ru: 'сом', ky: 'сом', kk: 'сом', es: 'som', de: 'Som', fr: 'som' }
 const SYMBOL: Record<Exclude<Currency, 'KGS'>, string> = { USD: '$', EUR: '€', KZT: '₸', RUB: '₽' }
 
 /** Intl понимает не все наши языки одинаково (ky в старых браузерах) — откатываемся на ru для чисел. */
