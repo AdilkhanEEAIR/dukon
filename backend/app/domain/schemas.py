@@ -155,6 +155,9 @@ class ItemChange(BaseModel):
     loss_per_day: float = 0.0
     suggested_order: int = 0
     reason: str = ""
+    # Скорость продаж ещё не измерена (первый обход или прошло меньше 6 часов): потери и заказ — оценка
+    # из допущения, что выкладка расходится за неделю.
+    estimated: bool = False
 
 
 class WalkDiff(BaseModel):
@@ -169,8 +172,10 @@ class WalkDiff(BaseModel):
     price_mismatch: int
     loss_per_day: float = Field(description="Сколько сом в день теряет магазин на пустых местах")
     empty_slots: int = 0
-    # Между обходами меньше шести часов: статусы считаем, а скорость и потери — нет (рано).
+    # Между обходами меньше шести часов: статусы считаем, скорость не меряем, потери — оценка.
     too_soon: bool = False
+    # Хоть одна позиция посчитана по допущению, а не по измеренной скорости.
+    estimated: bool = False
 
 
 class OrderLine(BaseModel):

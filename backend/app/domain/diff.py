@@ -27,6 +27,9 @@ PRICE_CHANGE_MIN_KGS = 1.0
 PRICE_CHANGE_MIN_SHARE = 0.02
 # На сколько дней вперёд предлагаем заказ. Для магазина у дома две недели — обычный цикл.
 ORDER_HORIZON_DAYS = 14
+# Пока скорость не измерена (рано или первый раз), считаем, что выкладка расходится за столько дней:
+# товар был на полке и пропал — это потеря, даже если точную скорость узнаем через сутки.
+ASSUMED_TURNOVER_DAYS = 7
 
 
 # Единицы измерения в одном написании: модель пишет то «1L», то «1 л», то «80гр».
@@ -182,17 +185,29 @@ def _velocity(sold: int, hours: float) -> float:
     return sold / (hours / 24.0)
 
 
-def _suggest(velocity: float, remaining: int, before: int | None) -> int:
+def _suggest(
+    velocity: float, remaining: int, before: int | None, status: Status = Status.OK, estimated: bool = False
+) -> int:
     """Сколько заказать: покрыть две недели по текущей скорости, минус остаток.
 
-    Если скорость неизвестна (первый обход), возвращаем прошлое количество как ориентир.
+    Пустую или заканчивающуюся позицию всегда хотя бы восстанавливаем до прошлой выкладки:
+    скорость может быть ещё не измерена, но то, что товар стоял и пропал, уже известно.
+    По скорости-допущению больше выкладки не заказываем — это оценка, а не измерение.
     """
-    if velocity <= MIN_VELOCITY:
-        return 0
+    restore = max(before - remaining, 0) if before is not None and status in (Status.OUT, Status.LOW) else 0
+    if velocity <= MIN_VELOCITY or estimated:
+        return restore
     need = int(round(velocity * ORDER_HORIZON_DAYS)) - remaining
     if before is not None:
         need = min(need, max(before * 2, 1))
-    return max(need, 0)
+    return max(need, restore, 0)
+
+
+def _assumed_velocity(before: int | None) -> float:
+    """Скорость по допущению, когда измерить нельзя: прошлая выкладка расходится за неделю."""
+    if not before:
+        return 0.0
+    return before / ASSUMED_TURNOVER_DAYS
 
 
 def _is_noise(before: int, after: int) -> bool:
@@ -201,8 +216,19 @@ def _is_noise(before: int, after: int) -> bool:
     return 0 < drop and (drop <= NOISE_ABS or drop < NOISE_SHARE * before)
 
 
+# Цена «прыгнула» больше чем в столько раз — модель взяла чужой ценник (226 за мультипак вместо 103),
+# а не магазин переписал цену. Такое не считаем сменой ценника и в деньгах держим прежнюю цену.
+PRICE_MISREAD_RATIO = 1.8
+
+
+def price_misread(before: float | None, after: float | None) -> bool:
+    if not before or not after:
+        return False
+    return max(before, after) / min(before, after) > PRICE_MISREAD_RATIO
+
+
 def price_changed(before: float | None, after: float | None) -> bool:
-    if before is None or after is None:
+    if before is None or after is None or price_misread(before, after):
         return False
     delta = abs(before - after)
     return delta >= PRICE_CHANGE_MIN_KGS and delta >= PRICE_CHANGE_MIN_SHARE * max(before, after)
@@ -218,6 +244,7 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
     changes: list[ItemChange] = []
     counts = defaultdict(int)
     loss_total = 0.0
+    any_estimated = False
 
     mapping = match_previous(before_items, after_items)
     for key, cur in after_items.items():
@@ -228,20 +255,29 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
         if before_count is not None and cur.count > 0 and _is_noise(before_count, cur.count):
             sold = 0
         velocity = 0.0 if too_soon else _velocity(sold, hours)
+        estimated = False
         price_before = prev.price if prev else None
         price_after = cur.price
+        if price_misread(price_before, price_after):
+            price_after = price_before
         price_known = price_after if price_after is not None else price_before
 
         if cur.count == 0:
             status = Status.OUT
         elif before_count is not None and sold > 0 and (cur.count <= LOW_ABS or cur.count <= before_count * LOW_SHARE):
             status = Status.LOW
-        elif price_changed(price_before, price_after):
+        elif not too_soon and price_changed(price_before, price_after):
+            # За минуты цены не меняются: при «рано сравнивать» расхождение — это чтение, а не ценник.
             status = Status.PRICE
         elif prev is None:
             status = Status.NEW
         else:
             status = Status.OK
+
+        # Пропала или кончается, а скорость измерить рано — берём допущение и честно помечаем «оценка».
+        if status in (Status.OUT, Status.LOW) and velocity <= MIN_VELOCITY and before_count:
+            velocity = _assumed_velocity(before_count)
+            estimated = True
 
         days_left = None
         if velocity > MIN_VELOCITY and cur.count > 0:
@@ -254,6 +290,9 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
             loss_total += loss
 
         reason = _reason(status, before_count, cur.count, velocity, days_left, price_before, price_after)
+        if estimated:
+            reason += " · оценка"
+        any_estimated = any_estimated or estimated
         changes.append(
             ItemChange(
                 # Ключ прошлого обхода держим как имя позиции во времени, даже если модель переназвала товар.
@@ -268,8 +307,9 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
                 price_before=price_before,
                 price_after=price_after,
                 loss_per_day=loss,
-                suggested_order=_suggest(velocity, cur.count, before_count),
+                suggested_order=_suggest(velocity, cur.count, before_count, status, estimated),
                 reason=reason,
+                estimated=estimated,
             )
         )
         counts[status] += 1
@@ -280,6 +320,10 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
         if key in matched_before:
             continue
         velocity = 0.0 if too_soon else _velocity(prev.count, hours)
+        estimated = velocity <= MIN_VELOCITY and prev.count > 0
+        if estimated:
+            velocity = _assumed_velocity(prev.count)
+        any_estimated = any_estimated or estimated
         loss = round(velocity * prev.price, 2) if prev.price and velocity > MIN_VELOCITY else 0.0
         loss_total += loss
         changes.append(
@@ -295,8 +339,9 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
                 price_before=prev.price,
                 price_after=None,
                 loss_per_day=loss,
-                suggested_order=_suggest(velocity, 0, prev.count),
-                reason=f"Было {prev.count}, на полке не найдено",
+                suggested_order=_suggest(velocity, 0, prev.count, Status.OUT, estimated),
+                reason=f"Было {prev.count}, на полке не найдено" + (" · оценка" if estimated else ""),
+                estimated=estimated,
             )
         )
         counts[Status.OUT] += 1
@@ -310,13 +355,15 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
         hours_between=round(hours, 2),
         changes=changes,
         total_items=sum(c.after for c in changes),
-        changed=sum(1 for c in changes if c.status != Status.OK),
+        # На первом обходе всё «новое» — это не изменения, а просто полка.
+        changed=sum(1 for c in changes if c.status not in (Status.OK, Status.NEW)),
         out_of_stock=counts[Status.OUT],
         low_stock=counts[Status.LOW],
         price_mismatch=counts[Status.PRICE],
         loss_per_day=round(loss_total, 2),
         empty_slots=after.empty_slots,
         too_soon=too_soon,
+        estimated=any_estimated,
     )
 
 
