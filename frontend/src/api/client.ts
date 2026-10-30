@@ -236,6 +236,12 @@ export const api = {
     if (opts.deviceId) headers['x-device-id'] = opts.deviceId
     return request<Walk>(`/walks/${encodeURIComponent(walkId)}/photos`, { method: 'POST', body: form, headers }, 180_000)
   },
+  /** Обход на примере: настоящая полка с сервера, без своих фото и без кода. */
+  sampleWalk: (opts: { shopId?: string; deviceId?: string }) => {
+    const headers: Record<string, string> = {}
+    if (opts.deviceId) headers['x-device-id'] = opts.deviceId
+    return request<Walk>(`/walks/sample${query({ shop_id: opts.shopId })}`, { method: 'POST', headers }, 180_000)
+  },
   /** Адрес уменьшенного фото обхода: поверх него экран «Что я увидел» рисует рамки. */
   photoUrl: (photoId: string) => `${API_BASE}/photos/${encodeURIComponent(photoId)}.jpg`,
 }

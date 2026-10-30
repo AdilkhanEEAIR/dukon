@@ -19,6 +19,7 @@ import { Pill } from '../components/Pill'
 import { LossTag } from '../components/PriceTag'
 import { ShelfArt } from '../components/ShelfArt'
 import { EmptyState, ErrorState, ReportSkeleton } from '../components/States'
+import { useSampleWalk } from '../hooks/useSampleWalk'
 import { useI18n } from '../i18n'
 import { capitalize, formatDate, formatWhen } from '../lib/format'
 
@@ -68,6 +69,7 @@ export function HomePage() {
 /** Первый запуск в живом режиме: что произойдёт после обхода — показано на полке, где рамки находят товар. */
 function FirstWalk() {
   const { t, list } = useI18n()
+  const sample = useSampleWalk()
   const steps = list<{ title: string; body: string }>('landing.steps').slice(0, 3)
   return (
     <section className="first-walk sheet" data-testid="first-walk">
@@ -87,9 +89,12 @@ function FirstWalk() {
             </li>
           ))}
         </ol>
-        <div>
+        <div className="row row--wrap" style={{ gap: 10 }}>
           <Button to="/app/scan" size="lg" icon={<ScanLine size={18} />} className="invite">
             {t('home.firstWalk')}
+          </Button>
+          <Button size="lg" variant="secondary" onClick={() => void sample.run()} loading={sample.busy} icon={<Sparkles size={18} />} data-testid="sample-walk">
+            {t('scan.sample')}
           </Button>
         </div>
       </div>

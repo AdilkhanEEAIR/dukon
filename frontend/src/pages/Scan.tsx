@@ -15,6 +15,7 @@ import { Button, IconButton } from '../components/Button'
 import { Field, Input } from '../components/Fields'
 import { EmptyState, Notice, Skeleton } from '../components/States'
 import { useToast } from '../components/Toast'
+import { useSampleWalk } from '../hooks/useSampleWalk'
 import { useI18n } from '../i18n'
 import { capitalize } from '../lib/format'
 
@@ -42,6 +43,7 @@ export function ScanPage() {
   const [over, setOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const previews = usePreviews(files)
+  const sample = useSampleWalk()
   const steps = list<string>('scan.steps')
 
   const addFiles = useCallback(
@@ -204,6 +206,14 @@ export function ScanPage() {
             <Button variant="quiet" block to="/app/shelves" icon={<Sparkles size={16} />}>
               {t('scan.useDemo')}
             </Button>
+          )}
+          {!liveBlocked && status === 'ready' && (
+            <div className="stack stack--tight" style={{ alignItems: 'center' }}>
+              <Button variant="secondary" block onClick={() => void sample.run()} loading={sample.busy} icon={<Sparkles size={16} />} data-testid="sample-walk">
+                {t('scan.sample')}
+              </Button>
+              <span className="small">{t('scan.sampleHint')}</span>
+            </div>
           )}
         </div>
       )}

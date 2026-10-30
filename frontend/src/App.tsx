@@ -3,7 +3,7 @@
 
 import { WifiOff } from 'lucide-react'
 import { AnimatePresence, MotionConfig, motion, useIsPresent, type Transition } from 'motion/react'
-import { Component, useCallback, useEffect, useState, type ErrorInfo, type ReactNode } from 'react'
+import { Component, type ErrorInfo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useOutlet } from 'react-router-dom'
 import { DataProvider, useLatest } from './app/data'
 import { ModeProvider, useMode } from './app/mode'
@@ -13,7 +13,7 @@ import { ShopsProvider, useShops } from './app/shops'
 import { DataModeSwitch } from './components/DataModeSwitch'
 import { Rail, TabBar } from './components/Nav'
 import { Skeleton, ErrorState } from './components/States'
-import { ToastProvider } from './components/Toast'
+import { ToastProvider, useToast } from './components/Toast'
 import { useOnline } from './hooks/useOnline'
 import { useRipple } from './hooks/useRipple'
 import { TopLoader } from './components/TopLoader'
@@ -127,6 +127,29 @@ function useDemoLink() {
   return wantDemo
 }
 
+/** Ссылка-пропуск для судей: /app?judge=КОД сохраняет код доступа в настройки и убирает его из адреса.
+ *  Судье не нужно ничего вводить — он нажал ссылку из описания проекта и сразу работает вживую. */
+function useJudgeLink() {
+  const { search, pathname } = useLocation()
+  const navigate = useNavigate()
+  const { update } = useSettings()
+  const toast = useToast()
+  const t = useT()
+  const judge = new URLSearchParams(search).get('judge')
+  // Один код — одно уведомление: эффект может сработать дважды (строгий режим, смена оболочки).
+  const applied = useRef<string | null>(null)
+  useEffect(() => {
+    if (!judge || applied.current === judge) return
+    applied.current = judge
+    update({ demoKey: judge })
+    toast('success', t('judge.enabled'), t('judge.enabledBody'))
+    const rest = new URLSearchParams(search)
+    rest.delete('judge')
+    const tail = rest.toString()
+    navigate(pathname + (tail ? `?${tail}` : ''), { replace: true })
+  }, [judge, update, toast, t, navigate, pathname, search])
+}
+
 /** Оболочка приложения: рейл на ПК, таббар на телефоне, кнопка «живые ↔ демо» в углу.
  *  Живой режим без магазина — в онбординг. В демо магазин не нужен: показываем демо-сеть,
  *  в том числе когда сервер лежит — вместо страницы ошибки. */
@@ -135,6 +158,7 @@ export function AppShell() {
   const { mode, status: modeStatus } = useMode()
   const { latest } = useLatest()
   const wantDemo = useDemoLink()
+  useJudgeLink()
   const live = mode === 'live' && !wantDemo
   // Своих обходов ещё нет — кнопки «Новый обход» мягко пульсируют, приглашая начать.
   const invite = live && latest.status === 'success' && latest.data === null
