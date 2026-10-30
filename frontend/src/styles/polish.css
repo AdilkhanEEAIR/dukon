@@ -231,3 +231,65 @@
 
 /* ================= спокойный режим ================= */
 :root[data-motion='calm'] .scan-sweep { display: none; }
+
+/* =========================================================================
+   Заход 2.1: адаптив на телефоне — лендинг, календарь, строки заказа, поле агента
+   ========================================================================= */
+
+/* Кнопки героя: на узком экране текст не должен вылезать за округлую кнопку — переносим и даём всю ширину. */
+@media (max-width: 767px) {
+  .hero__actions .btn { white-space: normal; text-align: center; min-width: 0; line-height: 1.2; padding-block: 10px; }
+}
+@media (max-width: 480px) {
+  .hero__actions { flex-direction: column; }
+  .hero__actions .btn { width: 100%; flex: none; }
+}
+
+/* Неделя в календаре: семь вкладок на 360 px — мельче цифры, без лишних полей; времена — под датами, слева. */
+@media (max-width: 480px) {
+  .walk-cal__bar { gap: 4px; }
+  .walk-cal__nav { width: 30px; height: 30px; }
+  .walk-cal__week { gap: 2px; padding: 3px; border-radius: 14px; }
+  .day-tab { padding: 6px 0 5px; border-radius: 10px; }
+  .day-tab__wd { font-size: 10px; }
+  .day-tab__n { font-size: 15px; }
+  .day-tab__bar i { width: 5px; }
+  .walk-cal__foot { flex-direction: column; align-items: flex-start; gap: 6px; padding: 0 2px; }
+  .walk-cal__times { justify-content: flex-start; }
+  .time-chip { height: 26px; padding: 0 9px; font-size: 12px; }
+}
+
+/* Строка заказа: на телефоне в одну линию не влезает — сетка: иконка и название сверху, счётчик и сумма снизу. */
+@media (max-width: 600px) {
+  .order-line {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'icon name'
+      'stepper sum';
+    gap: 8px 12px !important;
+    align-items: center;
+  }
+  .order-line > .pi { grid-area: icon; }
+  .order-line > .stack { grid-area: name; min-width: 0; }
+  .order-line > .stepper { grid-area: stepper; justify-self: start; }
+  .order-line__sum { grid-area: sum; justify-self: end; min-width: 0; }
+}
+
+/* Поле агента: четыре элемента в 360 px не живут — поле ввода (или волны/спиннер) на всю ширину, кнопки под ним. */
+@media (max-width: 480px) {
+  .composer { padding: 10px 10px 12px; }
+  .composer__row { flex-wrap: wrap; gap: 8px; }
+  .composer__row > .composer__input, .composer__row > .vu { flex: 1 1 100%; order: -1; }
+  .composer__row > .composer__send { margin-left: auto; }
+  /* Подсказка в поле — одной строкой с многоточием, а не двумя обрезанными. */
+  .composer__input::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bubble { max-width: 92%; font-size: 14px; }
+}
+
+/* Шапка страницы: на телефоне кнопки («Что я увидел», экспорт, тема…) не лезут на заголовок, а уходят строкой ниже. */
+@media (max-width: 600px) {
+  .page-head { flex-wrap: wrap; row-gap: 10px; }
+  .page-head__text { flex: 1 1 200px; }
+  .page-head > .row { flex-wrap: wrap; row-gap: 8px; }
+}
