@@ -87,14 +87,15 @@ describe('translate', () => {
 })
 
 describe('языки', () => {
-  it('английский по умолчанию и первым, затем русский и кыргызский', () => {
+  it('английский по умолчанию и первым, затем русский, кыргызский и казахский', () => {
     expect(DEFAULT_LOCALE).toBe('en')
-    expect(LOCALES.slice(0, 3)).toEqual(['en', 'ru', 'ky'])
-    expect(LOCALES).toHaveLength(6)
+    expect(LOCALES.slice(0, 4)).toEqual(['en', 'ru', 'ky', 'kk'])
+    expect(LOCALES).toHaveLength(7)
   })
   it('isLocale отсекает неизвестные значения', () => {
     expect(isLocale('ky')).toBe(true)
-    expect(isLocale('kk')).toBe(false)
+    expect(isLocale('kk')).toBe(true)
+    expect(isLocale('uz')).toBe(false)
     expect(isLocale(undefined)).toBe(false)
   })
   it('кыргызский словарь подставляет значения', () => {
@@ -104,7 +105,7 @@ describe('языки', () => {
   })
   it('у всех языков есть подпись автора и новые разделы', () => {
     for (const l of LOCALES) {
-      expect(translate(l, 'common.madeBy')).toMatch(/Adilkhan|Адилхан/)
+      expect(translate(l, 'common.madeBy')).toMatch(/Adilkhan|Адилхан|Әділхан/)
       expect(translate(l, 'branches.worst', { name: 'X' })).toContain('X')
     }
   })

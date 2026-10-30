@@ -219,7 +219,7 @@ describe('Голос', () => {
     renderAt('/app/agent')
     const mic = await screen.findByTestId('mic')
     expect(mic).toHaveAttribute('data-engine', 'browser')
-    expect(screen.getByTestId('mic-label')).toHaveTextContent('переключите язык на KY')
+    expect(screen.getByTestId('mic-label')).toHaveTextContent('переключите язык')
     await userEvent.click(mic)
     // Слушаем: волны вместо поля, поле спрятано.
     expect(await screen.findByTestId('vu')).toHaveTextContent('Слушаю…')
@@ -302,8 +302,11 @@ describe('Голос', () => {
   })
 
   it('озвучка по-кыргызски: ө/ү/ң заменяем для русского голоса, казахский голос предпочитаем русскому', () => {
-    expect(kyrgyzForRussianVoice('Күнүнө 0 сом жоготуп жатасыз, дүкөнүңүз')).toBe('Кунуно 0 сом жоготуп жатасыз, дуконунуз')
     const voice = (lang: string) => ({ lang, name: lang, default: false, localService: true, voiceURI: lang }) as SpeechSynthesisVoice
+    expect(kyrgyzForRussianVoice('Күнүнө 0 сом жоготуп жатасыз, дүкөнүңүз')).toBe('Кунуно 0 сом жоготуп жатасыз, дуконунуз')
+    expect(kyrgyzForRussianVoice('Қанша жоғалтып жатырмын, әкелме')).toBe('Канша жогалтып жатырмын, акелме')
+    expect(pickVoice([voice('ru-RU'), voice('kk-KZ')], 'kk')?.lang).toBe('kk-KZ')
+    expect(pickVoice([voice('hi-IN'), voice('en-US')], 'hi')?.lang).toBe('hi-IN')
     expect(pickVoice([voice('ru-RU'), voice('kk-KZ')], 'ky')?.lang).toBe('kk-KZ')
     expect(pickVoice([voice('ru-RU'), voice('en-US')], 'ky')?.lang).toBe('ru-RU')
     expect(pickVoice([voice('en-US'), voice('en-GB')], 'en')?.lang).toBe('en-US')

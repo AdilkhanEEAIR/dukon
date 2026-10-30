@@ -272,7 +272,7 @@ describe('Nav: тема, язык, режим, магазин, автор', () =
     expect(document.documentElement.dataset.theme).toBe('light')
   })
 
-  it('LangSwitch: шесть языков, английский первым, выбор меняет язык', async () => {
+  it('LangSwitch: семь языков, английский первым, выбор меняет язык', async () => {
     seedSettings({ locale: 'ru' })
     mockFetch(liveRoutes)
     withApp(
@@ -284,7 +284,7 @@ describe('Nav: тема, язык, режим, магазин, автор', () =
     await waitFor(() => expect(screen.getByText(/Живой/)).toBeInTheDocument())
     await userEvent.click(screen.getByTestId('lang-switch'))
     const options = screen.getAllByRole('option').map((o) => o.textContent)
-    expect(options).toEqual(['English', 'Русский', 'Кыргызча', 'Español', 'Deutsch', 'Français'])
+    expect(options).toEqual(['English', 'Русский', 'Кыргызча', 'Қазақша', 'Español', 'Deutsch', 'Français'])
     await userEvent.click(screen.getByRole('option', { name: 'Кыргызча' }))
     expect(screen.getByText(/Чыныгы/)).toBeInTheDocument()
     expect(JSON.parse(localStorage.getItem('dukon.settings')!).locale).toBe('ky')
