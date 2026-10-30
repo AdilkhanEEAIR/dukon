@@ -102,9 +102,10 @@ export function AgentPage() {
     el.scrollTop = el.scrollHeight
   }, [items, resolvedMotion])
 
+  // Озвучиваем на языке ответа: хозяин спросил по-казахски при английском экране — диктор тоже казахский.
   const say = useCallback(
-    (text: string) => {
-      if (speakOn) speak(text, locale)
+    (text: string, lang?: string | null) => {
+      if (speakOn) speak(text, lang || locale)
     },
     [speakOn, locale],
   )
@@ -183,7 +184,7 @@ export function AgentPage() {
       try {
         const out = await api.chat({ message: text, walk_id: walk?.id ?? null, shop_id: shopId, lang: locale, history: history.slice(-8) }, { deviceId: dev, demoKey: settings.demoKey || undefined })
         push({ kind: 'msg', msg: out.reply })
-        if (out.reply.text) say(out.reply.text)
+        if (out.reply.text) say(out.reply.text, out.reply.lang)
         if (out.rules) {
           setRules(out.rules)
           toast('success', t('agent.saved'))

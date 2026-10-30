@@ -39,7 +39,7 @@ export function Composer({ voice, onSend, onRun, canRun, running, busy, speakOn,
   const transcribing = voice.status === 'transcribing'
   const micLabel =
     voice.engine === 'meta'
-      ? t(locale === 'ky' ? 'agent.micSpark' : 'agent.micMeta')
+      ? t(locale === 'ky' || locale === 'kk' ? 'agent.micSpark' : 'agent.micMeta')
       : voice.engine === 'browser'
         ? t('agent.micBrowser')
         : voice.needsKey

@@ -4,15 +4,36 @@
 
 import type { Locale } from '../i18n'
 
-const SPEECH_LANG: Record<Locale, string> = { en: 'en-US', ru: 'ru-RU', ky: 'ky-KG', es: 'es-ES', de: 'de-DE', fr: 'fr-FR' }
-const RECOGNITION_LANG: Record<Locale, string> = { en: 'en-US', ru: 'ru-RU', ky: 'ky-KG', es: 'es-ES', de: 'de-DE', fr: 'fr-FR' }
-// Какие языки умеет распознавать браузер. Кыргызского нет ни в Chrome, ни в Safari: запрос падает
-// с «language-not-supported», и микрофон гаснет сразу — поэтому ky здесь нет, и он идёт в модель Meta.
+const SPEECH_LANG: Record<Locale, string> = { en: 'en-US', ru: 'ru-RU', ky: 'ky-KG', kk: 'kk-KZ', es: 'es-ES', de: 'de-DE', fr: 'fr-FR' }
+const RECOGNITION_LANG: Record<Locale, string> = { en: 'en-US', ru: 'ru-RU', ky: 'ky-KG', kk: 'kk-KZ', es: 'es-ES', de: 'de-DE', fr: 'fr-FR' }
+// Какие языки умеет распознавать браузер. Кыргызского и казахского нет ни в Chrome, ни в Safari: запрос падает
+// с «language-not-supported», и микрофон гаснет сразу — поэтому их здесь нет, они идут в модель Meta.
 const BROWSER_RECOGNIZES = new Set<Locale>(['en', 'ru', 'es', 'de', 'fr'])
+// Языки ответа, которые читаем кириллическим голосом с подменой букв, если своего голоса в браузере нет.
+const CYRILLIC_TURKIC = new Set(['ky', 'kk'])
 
-// Кыргызские буквы, которых нет в русском: русский голос читает их как «о с чертой» или молчит.
-// Заменяем на ближайшие по звучанию — слова становятся разборчивыми.
-const KY_TO_RU: Record<string, string> = { ө: 'о', Ө: 'О', ү: 'у', Ү: 'У', ң: 'н', Ң: 'Н' }
+// Кыргызские и казахские буквы, которых нет в кириллическом голосе браузера: он читает их как «о с чертой»
+// или молчит. Заменяем на ближайшие по звучанию — слова становятся разборчивыми.
+const TURKIC_TO_RU: Record<string, string> = {
+  ө: 'о',
+  Ө: 'О',
+  ү: 'у',
+  Ү: 'У',
+  ң: 'н',
+  Ң: 'Н',
+  ә: 'а',
+  Ә: 'А',
+  ғ: 'г',
+  Ғ: 'Г',
+  қ: 'к',
+  Қ: 'К',
+  ұ: 'у',
+  Ұ: 'У',
+  һ: 'х',
+  Һ: 'Х',
+  і: 'и',
+  І: 'И',
+}
 
 export function canSpeak(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined'
@@ -22,16 +43,22 @@ export function canRecognizeLocale(locale: Locale): boolean {
   return canRecognize() && BROWSER_RECOGNIZES.has(locale)
 }
 
-/** Текст для русского голоса: кыргызские буквы → русские. Экспорт ради тестов. */
+/** Текст для кириллического голоса: кыргызские и казахские буквы → ближайшие. Экспорт ради тестов. */
 export function kyrgyzForRussianVoice(text: string): string {
-  return text.replace(/[өӨүҮңҢ]/g, (ch) => KY_TO_RU[ch] ?? ch)
+  return text.replace(/[өӨүҮңҢәӘғҒқҚұҰһҺіІ]/g, (ch) => TURKIC_TO_RU[ch] ?? ch)
 }
 
-/** Голос для языка: точное совпадение → тот же язык → для кыргызского казахский (те же ө, ү, ң) → русский. */
-export function pickVoice(voices: SpeechSynthesisVoice[], locale: Locale): SpeechSynthesisVoice | null {
-  const lang = SPEECH_LANG[locale]
-  const prefixes = locale === 'ky' ? ['ky', 'kk', 'ru'] : [lang.slice(0, 2)]
-  const exact = voices.find((v) => v.lang === lang || v.lang.replace('_', '-') === lang)
+/** Код языка ответа (ru, kk, hi…) → тег для голоса. Для своих языков — точный регион, для прочих — как есть. */
+function speechTag(lang: string): string {
+  return (SPEECH_LANG as Record<string, string>)[lang] ?? lang
+}
+
+/** Голос для языка: точное совпадение → тот же язык → для кыргызского и казахского друг друга и кириллический. */
+export function pickVoice(voices: SpeechSynthesisVoice[], lang: string): SpeechSynthesisVoice | null {
+  const tag = speechTag(lang)
+  const short = tag.slice(0, 2).toLowerCase()
+  const prefixes = CYRILLIC_TURKIC.has(short) ? [short, short === 'ky' ? 'kk' : 'ky', 'ru'] : [short]
+  const exact = voices.find((v) => v.lang === tag || v.lang.replace('_', '-') === tag)
   if (exact) return exact
   for (const p of prefixes) {
     const found = voices.find((v) => v.lang.toLowerCase().startsWith(p))
@@ -40,16 +67,18 @@ export function pickVoice(voices: SpeechSynthesisVoice[], locale: Locale): Speec
   return null
 }
 
-export function speak(text: string, locale: Locale): void {
+/** Озвучка на языке ответа: lang — локаль интерфейса или код, который вернул сервер (ru, kk, hi…). */
+export function speak(text: string, lang: string): void {
   if (!canSpeak() || !text.trim()) return
   const synth = window.speechSynthesis
   synth.cancel()
-  const voice = pickVoice(synth.getVoices(), locale)
-  const voiceLang = (voice?.lang ?? SPEECH_LANG[locale]).toLowerCase()
-  // Кыргызского голоса в браузерах нет: читаем русским (или казахским в Edge), подменив буквы.
-  const spoken = locale === 'ky' && !voiceLang.startsWith('ky') && !voiceLang.startsWith('kk') ? kyrgyzForRussianVoice(text) : text
+  const short = speechTag(lang).slice(0, 2).toLowerCase()
+  const voice = pickVoice(synth.getVoices(), lang)
+  const voiceLang = (voice?.lang ?? speechTag(lang)).toLowerCase()
+  // Кыргызского голоса в браузерах нет, казахский есть не везде: читаем кириллическим, подменив буквы.
+  const spoken = CYRILLIC_TURKIC.has(short) && !voiceLang.startsWith('ky') && !voiceLang.startsWith('kk') ? kyrgyzForRussianVoice(text) : text
   const u = new SpeechSynthesisUtterance(spoken)
-  u.lang = voice?.lang ?? (locale === 'ky' ? 'ru-RU' : SPEECH_LANG[locale])
+  u.lang = voice?.lang ?? (CYRILLIC_TURKIC.has(short) ? 'ru-RU' : speechTag(lang))
   u.rate = 1.02
   if (voice) u.voice = voice
   synth.speak(u)

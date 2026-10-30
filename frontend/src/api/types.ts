@@ -323,6 +323,8 @@ export interface ChatMessage {
   text: string
   at: string
   action?: ChatAction | null
+  /** Язык ответа — язык вопроса, а не интерфейса; им же озвучиваем. */
+  lang?: string | null
 }
 
 export interface ChatOut {
