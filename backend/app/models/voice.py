@@ -79,6 +79,7 @@ def transcribe(settings, wav: bytes, lang: str | None, keywords: list[str]) -> d
 SPARK_LANG_NAMES = {
     "ky": "кыргызском",
     "ru": "русском",
+    "kk": "казахском",
     "en": "английском",
     "es": "испанском",
     "de": "немецком",
@@ -145,6 +146,13 @@ TYPICAL_PHRASES = {
         "что закончилось",
         "молочку в пятницу не возить",
         "закажи всё что нужно",
+    ],
+    "kk": [
+        "қанша жоғалтып жатырмын",
+        "не тапсырыс беру керек",
+        "не таусылды",
+        "жұма күні сүт әкелме",
+        "барлығына тапсырыс бер",
     ],
     "en": ["what am I losing", "what should I order", "what is out of stock", "no dairy on Friday", "order everything"],
 }

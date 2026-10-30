@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     live_trial_per_device: int = 3
     # Кыргызского и русского у Muse Voice Transcribe нет — для них речь слушает Muse Spark с аудио на входе.
     voice_audio_model: str = "muse-spark-1.2"
-    voice_audio_langs: str = "ky,ru"
+    voice_audio_langs: str = "ky,kk,ru"
     # Лимиты, чтобы чужой трафик не сжёг кредиты: вызовов в час с одного адреса и в сутки всего.
     # Судья за сессию делает десятки вызовов (обходы, голос, разговор): час — 120, сутки на всех — 600.
     live_calls_per_hour_per_ip: int = 120
