@@ -14,6 +14,7 @@
   GET    /walks/{id}/diff                — сравнение с предыдущим обходом того же магазина
   GET    /photos/{photo_id}.jpg          — уменьшенное фото обхода (поверх него фронт рисует рамки)
   POST   /walks/analyze?shop_id=         — живой режим: фото → обход (нужен демо-код)
+  POST   /walks/{id}/photos              — добавить фото в свежий живой обход (прогресс по одному фото)
   DELETE /walks?source=live              — очистить живые обходы
 Поставщики, правила, черновики, агент, разговор, утверждение заказов и голос — в agent_api.py.
 """
@@ -40,7 +41,7 @@ from .domain.schemas import BranchSummary, Shop, ShopIn, ShopPatch, Walk, WalkDi
 from .models import build_provider
 from .models.meta import ProviderError
 from .pipeline.analyze import PIPELINE_VERSION, analyze_photo
-from .pipeline.images import ImageError, sha256
+from .pipeline.images import ImageError, sha256, taken_at
 from .security import RateLimiter, guard_live, today_key
 from .storage import Storage
 
@@ -245,6 +246,67 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
             raise HTTPException(404, detail={"code": "not_found", "message": "Обход не найден"})
         return diff_walks(storage.previous_walk(walk), walk)
 
+    async def ingest(walk: Walk, uploads: list[UploadFile], known_names: list[str]) -> int:
+        """Разбирает фото и кладёт их в обход. Возвращает число настоящих вызовов моделей (из кэша — 0)."""
+        fresh_calls = 0
+        for upload in uploads:
+            raw = await upload.read()
+            if len(raw) > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    413, detail={"code": "file_too_large", "message": f"Файл {upload.filename} больше 25 МБ"}
+                )
+            # Версия конвейера входит в ключ: после смены конвейера старый ответ (например, пустой
+            # от прежней подсказки SAM) не должен возвращаться из кэша вместо нового разбора.
+            digest = f"{PIPELINE_VERSION}:{sha256(raw)}"
+            cached = storage.cached_photo(digest)
+            if cached:
+                # Время съёмки читаем из самого файла всегда: оно бесплатно, а в старом кэше его может не быть.
+                if cached.taken_at is None:
+                    cached.taken_at = taken_at(raw, settings.photo_tz_offset_hours)
+                walk.photos.append(cached)
+                continue
+            try:
+                analysis = analyze_photo(
+                    raw,
+                    provider,
+                    settings.max_image_side,
+                    settings.jpeg_quality,
+                    settings.data_dir / "photos",
+                    known_names=known_names,
+                    tz_offset_hours=settings.photo_tz_offset_hours,
+                )
+            except ImageError as exc:
+                raise HTTPException(415, detail={"code": "bad_image", "message": f"{upload.filename}: {exc}"}) from exc
+            # Пустой результат не кэшируем: следующая попытка с тем же фото должна снова спросить модели.
+            if analysis.items:
+                storage.cache_photo(digest, analysis)
+            walk.photos.append(analysis)
+            fresh_calls += 1
+        if fresh_calls:
+            storage.increment(today_key(), fresh_calls)
+            # Модель ответила — значит, кредиты и ключ снова в порядке. Без этого одна старая ошибка billing
+            # навсегда держала бы /health в демо, даже после пополнения счёта.
+            storage.set_text("last_provider_error", None)
+        return fresh_calls
+
+    def vocabulary(walk: Walk) -> list[str]:
+        """Названия товаров из прошлого обхода магазина — подсказка модели, чтобы называть их так же."""
+        previous = storage.previous_walk(walk)
+        if previous is None:
+            return []
+        seen: dict[str, None] = {}
+        for item in previous.items:
+            seen.setdefault(item.name, None)
+        return list(seen)
+
+    def date_walk(walk: Walk) -> None:
+        """Обход датируется съёмкой самого раннего фото, если EXIF есть и он не из будущего."""
+        stamps = [p.taken_at for p in walk.photos if p.taken_at is not None]
+        if stamps and len(stamps) == len(walk.photos):
+            earliest = min(stamps)
+            if earliest <= datetime.now(timezone.utc):
+                walk.created_at = earliest
+
     @app.post("/walks/analyze", response_model=Walk, status_code=201)
     async def analyze(
         request: Request,
@@ -270,36 +332,40 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
             )
 
         walk = Walk(id="live-" + uuid.uuid4().hex[:10], label=label or _default_label(), source="live", shop_id=shop_id)
-        fresh_calls = 0
-        for upload in photos:
-            raw = await upload.read()
-            if len(raw) > MAX_UPLOAD_BYTES:
-                raise HTTPException(
-                    413, detail={"code": "file_too_large", "message": f"Файл {upload.filename} больше 25 МБ"}
-                )
-            # Версия конвейера входит в ключ: после смены конвейера старый ответ (например, пустой
-            # от прежней подсказки SAM) не должен возвращаться из кэша вместо нового разбора.
-            digest = f"{PIPELINE_VERSION}:{sha256(raw)}"
-            cached = storage.cached_photo(digest)
-            if cached:
-                walk.photos.append(cached)
-                continue
-            try:
-                analysis = analyze_photo(
-                    raw, provider, settings.max_image_side, settings.jpeg_quality, settings.data_dir / "photos"
-                )
-            except ImageError as exc:
-                raise HTTPException(415, detail={"code": "bad_image", "message": f"{upload.filename}: {exc}"}) from exc
-            # Пустой результат не кэшируем: следующая попытка с тем же фото должна снова спросить модели.
-            if analysis.items:
-                storage.cache_photo(digest, analysis)
-            walk.photos.append(analysis)
-            fresh_calls += 1
-        if fresh_calls:
-            storage.increment(today_key(), fresh_calls)
-            # Модель ответила — значит, кредиты и ключ снова в порядке. Без этого одна старая ошибка billing
-            # навсегда держала бы /health в демо, даже после пополнения счёта.
-            storage.set_text("last_provider_error", None)
+        await ingest(walk, photos, vocabulary(walk))
+        date_walk(walk)
+        storage.save_walk(walk)
+        return walk
+
+    @app.post("/walks/{walk_id}/photos", response_model=Walk)
+    async def add_photos(
+        walk_id: str,
+        request: Request,
+        photos: list[UploadFile] = File(...),
+        x_device_id: str | None = Header(default=None),
+        _=Depends(deps),
+    ):
+        """Добавить фото в свежий обход: фронт шлёт фото по одному и показывает прогресс по каждому."""
+        walk = storage.get_walk(walk_id)
+        if walk is None or walk.source != "live":
+            raise HTTPException(404, detail={"code": "not_found", "message": "Обход не найден"})
+        if walk.shop_id and storage.get_shop(walk.shop_id, device_id(x_device_id)) is None:
+            raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
+        guard_live(request, settings, storage, limiter)
+        if not photos:
+            raise HTTPException(400, detail={"code": "no_photos", "message": "Прикрепите хотя бы одно фото"})
+        if len(walk.photos) + len(photos) > MAX_PHOTOS_PER_WALK:
+            raise HTTPException(
+                400,
+                detail={"code": "too_many_photos", "message": f"За один обход не больше {MAX_PHOTOS_PER_WALK} фото"},
+            )
+        # Словарь: прошлый обход плюс то, что уже прочитано в этом — фото одной полки должны звать товар одинаково.
+        names = vocabulary(walk)
+        for item in walk.items:
+            if item.name not in names:
+                names.append(item.name)
+        await ingest(walk, photos, names)
+        date_walk(walk)
         storage.save_walk(walk)
         return walk
 
