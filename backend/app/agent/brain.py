@@ -194,6 +194,11 @@ def _note(lang: str, key: str, **params: Any) -> str:
             "ru": "Подтверждено {n} заказа на {total} сом. Правила хозяина сработали {blocks} раз — всё исправлено.",
             "en": "Confirmed {n} orders for {total} KGS. The owner's rules fired {blocks} times — all fixed.",
         },
+        "finish_none": {
+            "ru": "Заказывать нечего: по последнему обходу всё в наличии. Деньги не потрачены.",
+            "en": "Nothing to order: everything is in stock as of the last walk. No money spent.",
+            "ky": "Заказ кылуучу эч нерсе жок: акыркы кыдыруу боюнча баары бар. Акча сарпталган жок.",
+        },
         "fix_upsize": {
             "ru": "Скидка {pct:g}% не стоит лишнего товара. Возвращаю {name}: {qty} шт.",
             "en": "A {pct:g}% discount isn't worth the extra stock. {name} back to {qty}.",
@@ -301,6 +306,10 @@ class ScriptBrain:
             sid = self._pending[0]
             self._stage[sid] = "proposed"
             self._queue.append(self._first_proposal(self._draft(sid)))
+            return
+        if not self._drafts:
+            # Черновиков нет — один честный итог вместо прогона модели по пустому списку.
+            self._queue.append(Action("finish", {"summary": _note(self.lang, "finish_none")}))
             return
         self._queue.append(
             Action(

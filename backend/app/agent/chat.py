@@ -132,6 +132,10 @@ _T = {
         "ru": "Запускаю агента: он соберёт заказ по {n} позициям и договорится с поставщиками по вашим правилам.",
         "en": "Starting the agent: it will build an order for {n} items and negotiate with suppliers by your rules.",
     },
+    "order_none": {
+        "ru": "Заказывать пока нечего: по последнему обходу всё в наличии. Сделайте новый обход, когда полка поредеет.",
+        "en": "Nothing to order yet: everything is in stock as of the last walk. Walk again when the shelf thins out.",
+    },
     "rule_dairy": {
         "ru": "Записал: молочку не заказывать на {day}.",
         "en": "Noted: no dairy orders for {day}.",
@@ -225,6 +229,8 @@ class ScriptChat:
             return ChatMessage(role="agent", text=_t(lang, "nodata"))
         if any(w in m for w in ("закаж", "заказ", "order", "поставщик", "supplier", "буйрут", "договор")):
             n = sum(1 for c in diff.changes if c.suggested_order > 0)
+            if n == 0:
+                return ChatMessage(role="agent", text=_t(lang, "order_none"))
             return ChatMessage(role="agent", text=_t(lang, "order", n=n), action={"type": "start_run"})
         if any(
             w in m
