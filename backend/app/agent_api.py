@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 
 from .agent import loop
 from .agent.brain import ScriptBrain, SparkBrain
-from .agent.chat import ChatContext, ScriptChat, SparkChat, apply_rules_patch
+from .agent.chat import ChatContext, ScriptChat, SparkChat, apply_rules_patch, detect_lang
 from .agent.suppliers import SUPPLIERS, by_id
 from .agent.verifier import verify_draft
 from .config import Settings
@@ -50,7 +50,7 @@ from .storage import Storage
 
 log = logging.getLogger("dukon.agent_api")
 
-LANGS = {"en", "ru", "ky", "es", "de", "fr"}
+LANGS = {"en", "ru", "ky", "kk", "es", "de", "fr"}
 MAX_AUDIO_BYTES = 32 * 1024 * 1024
 
 
@@ -286,7 +286,10 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
         else:
             engine = ScriptChat()
         try:
+            # Отвечаем на языке вопроса, а не интерфейса: хозяин может писать по-казахски при английском экране.
+            language = detect_lang(body.message, language)
             reply = engine.answer(body.message, body.history, ctx, language)
+            reply.lang = reply.lang or language
         except ProviderError:
             raise
         except Exception as exc:  # noqa: BLE001 — сбой модели в разговоре не должен быть 500 без причины

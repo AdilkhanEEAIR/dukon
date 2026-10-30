@@ -50,10 +50,65 @@ CHAT_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
-CHAT_SYSTEM = """Ты — Dukon, помощник хозяина магазина у дома в Бишкеке. Отвечай коротко, по делу, на языке {lang}.
+CHAT_SYSTEM = """Ты — Dukon, помощник хозяина магазина у дома в Бишкеке. Отвечай коротко, по делу.
+Язык ответа — тот, на котором написано последнее сообщение хозяина, каким бы он ни был
+(кыргызский, казахский, хинди, арабский — любой); если по сообщению язык не понять — {lang}.
 Числа бери только из контекста ниже, ничего не выдумывай. Валюта — сом.
 Если хозяин просит изменить правило — вызови update_rules. Если просит заказать, договориться с поставщиками,
-собрать заказ — вызови start_order_run. В остальных случаях отвечай текстом в 1–3 предложения."""
+собрать заказ — вызови start_order_run. В остальных случаях отвечай текстом в 1–3 предложения.
+Про то, что не касается полки, заказов и правил, честно скажи, что занимаешься только этим."""
+
+# Буквы, которых нет в русском: по ним отличаем казахский и кыргызский от русского текста.
+_KK_ONLY = set("әғқұһіӘҒҚҰҺІ")
+_KY_KK = set("үөңҮӨҢ")
+# Частые слова вопросов хозяина: кыргызская фраза без ү/ө/ң («канча жоготуп жатам») иначе сойдёт за русскую.
+_CYR_HINTS = {
+    "ky": {"канча", "эмне", "жатам", "жатасыз", "буйрутма", "керек", "түгөндү", "баарын", "бардыгын", "жума", "сүт"},
+    "kk": {"қанша", "тапсырыс", "жатырмын", "таусылды", "барлығына", "бүгін", "сүт", "әкелме"},
+}
+# Короткие служебные слова латинских языков: хватает, чтобы отличить вопрос по-испански от английского.
+_LATIN_HINTS = {
+    "es": {"que", "qué", "cuánto", "cuanto", "pierdo", "pedir", "los", "las", "una", "hoy", "estoy"},
+    "de": {"was", "wie", "viel", "verliere", "bestellen", "ich", "nicht", "und", "heute", "die", "der"},
+    "fr": {"que", "combien", "perds", "commander", "je", "les", "des", "pas", "aujourd", "quoi"},
+    "tr": {"ne", "kadar", "kaybediyorum", "sipariş", "bugün", "değil", "ve", "için"},
+    "uz": {"qancha", "nima", "buyurtma", "yo'qotyapman", "bugun", "kerak"},
+}
+
+
+def detect_lang(message: str, fallback: str) -> str:
+    """Язык сообщения по алфавиту и служебным словам. Не уверены — язык интерфейса.
+
+    Нужен в двух местах: сценарный ответчик берёт по нему словарь, а фронт — голос диктора.
+    Модели Spark он не указ: ей сказано отвечать на языке вопроса самой.
+    """
+    text = message.strip()
+    if not text:
+        return fallback
+    chars = set(text)
+    if chars & _KK_ONLY:
+        return "kk"
+    if any("\u0400" <= ch <= "\u04ff" for ch in text):
+        words = set(re.findall(r"[а-яёәғқұһіүөң]+", text.lower()))
+        for code, hints in _CYR_HINTS.items():
+            if words & hints:
+                return code
+        if chars & _KY_KK:
+            return "kk" if fallback == "kk" else "ky"
+        return "ru"
+    if any("\u0900" <= ch <= "\u097f" for ch in text):
+        return "hi"
+    if any("\u0600" <= ch <= "\u06ff" for ch in text):
+        return "ar"
+    if any("\u4e00" <= ch <= "\u9fff" for ch in text):
+        return "zh"
+    words = set(re.findall(r"[a-zà-ÿğışçö']+", text.lower()))
+    if not words:
+        return fallback
+    best = max(_LATIN_HINTS.items(), key=lambda kv: len(words & kv[1]))
+    if len(words & best[1]) >= 2 or (len(words & best[1]) == 1 and best[0] == fallback):
+        return best[0]
+    return fallback if fallback in ("en", "es", "de", "fr") else "en"
 
 
 class ChatContext:
@@ -118,7 +173,7 @@ class SparkChat:
                 action = {"type": "update_rules", "patch": args}
             elif call.function.name == "start_order_run":
                 action = {"type": "start_run"}
-        return ChatMessage(role="agent", text=text, action=action)
+        return ChatMessage(role="agent", text=text, action=action, lang=lang)
 
 
 # ---------------------------------------------------------------------------------------------- Сценарий
@@ -184,7 +239,9 @@ _DAY_EN = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "
 
 
 def _t(lang: str, key: str, **params: Any) -> str:
-    return (_T[key].get(lang) or _T[key]["en"]).format(**params)
+    # Кыргызскому и казахскому вопросу кириллический ответ ближе английского: своего словаря у сценария нет.
+    table = _T[key]
+    return (table.get(lang) or (table.get("ru") if lang in ("ky", "kk") else None) or table["en"]).format(**params)
 
 
 class ScriptChat:
@@ -227,7 +284,7 @@ class ScriptChat:
             )
         if diff is None:
             return ChatMessage(role="agent", text=_t(lang, "nodata"))
-        if any(w in m for w in ("закаж", "заказ", "order", "поставщик", "supplier", "буйрут", "договор")):
+        if any(w in m for w in ("закаж", "заказ", "order", "поставщик", "supplier", "буйрут", "тапсырыс", "договор")):
             n = sum(1 for c in diff.changes if c.suggested_order > 0)
             if n == 0:
                 return ChatMessage(role="agent", text=_t(lang, "order_none"))
@@ -243,6 +300,8 @@ class ScriptChat:
                 "деньг",
                 "money",
                 "жогот",
+                "жоғалт",
+                "таусыл",
                 "нет в налич",
                 "закончил",
                 "out of stock",

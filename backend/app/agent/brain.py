@@ -20,7 +20,20 @@ from .workbench import TOOLS, ToolResult
 
 log = logging.getLogger("dukon.agent")
 
-LANG_NAMES = {"en": "English", "ru": "Russian", "ky": "Kyrgyz", "es": "Spanish", "de": "German", "fr": "French"}
+LANG_NAMES = {
+    "en": "English",
+    "ru": "Russian",
+    "ky": "Kyrgyz",
+    "kk": "Kazakh",
+    "es": "Spanish",
+    "de": "German",
+    "fr": "French",
+    "hi": "Hindi",
+    "ar": "Arabic",
+    "zh": "Chinese",
+    "tr": "Turkish",
+    "uz": "Uzbek",
+}
 
 
 @dataclass
@@ -208,8 +221,8 @@ def _note(lang: str, key: str, **params: Any) -> str:
             "en": "The supplier offers {pct:g}% for a bigger order — that exceeds {days} days of stock, declining.",
         },
     }
-    # Кыргызскому интерфейсу ближе русские заметки, чем английские: словаря сценария на кыргызском нет.
-    fallback = "ru" if lang == "ky" else "en"
+    # Кыргызскому и казахскому интерфейсу ближе кириллические заметки: своего словаря сценария у них нет.
+    fallback = "ru" if lang in ("ky", "kk") else "en"
     text = table.get(key, {}).get(lang) or table.get(key, {}).get(fallback) or table.get(key, {}).get("en", key)
     return text.format(**params)
 

@@ -436,3 +436,5 @@ class ChatMessage(BaseModel):
     at: datetime = Field(default_factory=utcnow)
     # Что агент сделал в ответ: изменил правило, запустил заказ, показал цифры.
     action: dict | None = None
+    # Язык ответа (по языку вопроса): фронт озвучивает его нужным голосом.
+    lang: str | None = None
