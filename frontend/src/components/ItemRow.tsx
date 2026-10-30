@@ -8,7 +8,7 @@ import { useI18n } from '../i18n'
 import { STATUS_TONE } from './Pill'
 import { ProductIcon } from './ProductIcon'
 
-export function ItemRow({ change, onOpen }: { change: ItemChange; onOpen?: (change: ItemChange) => void }) {
+export function ItemRow({ change, onOpen, first }: { change: ItemChange; onOpen?: (change: ItemChange) => void; first?: boolean }) {
   const { t, product } = useI18n()
   const navigate = useNavigate()
   const tone = STATUS_TONE[change.status]
@@ -18,7 +18,8 @@ export function ItemRow({ change, onOpen }: { change: ItemChange; onOpen?: (chan
       <ProductIcon name={change.name} empty={change.status === 'out_of_stock'} />
       <span className="stack" style={{ gap: 1, minWidth: 0, textAlign: 'left' }}>
         <span className="item-row__name truncate">{product(change.name)}</span>
-        <span className={`item-row__meta c-${tone}`}>{t(`status.${change.status}`)}</span>
+        {/* На первом обходе сравнивать не с чем: это не «новый товар», а просто то, что стоит на полке. */}
+        <span className={`item-row__meta c-${tone}`}>{first && change.status === 'new_item' ? t('status.on_shelf') : t(`status.${change.status}`)}</span>
       </span>
       <span className="item-row__nums">
         {change.before !== null && (

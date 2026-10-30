@@ -165,11 +165,15 @@ function ReportBody({ report }: { report: Report }) {
             </span>
             <Money kgs={diff.loss_per_day} className="num-lg metric__money c-out" altBlock />
             <span className="metric__label">{rich('shelves.losing')}</span>
-            {diff.too_soon && (
+            {diff.estimated ? (
+              <span className="small" data-testid="estimated">
+                {t('shelves.estimated')}
+              </span>
+            ) : diff.too_soon ? (
               <span className="small" data-testid="too-soon">
                 {t('shelves.tooSoon', { t: formatHours(diff.hours_between, t) })}
               </span>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -195,7 +199,7 @@ function ReportBody({ report }: { report: Report }) {
               <AnimatePresence initial={false} mode="popLayout">
                 {visible.map((c) => (
                   <motion.div key={c.sku} layout="position" initial={false} exit={{ opacity: 0, x: -18, scale: 0.98, transition: { duration: 0.22 } }} transition={{ layout: { type: 'spring', stiffness: 380, damping: 34 } }}>
-                    <ItemRow change={c} onOpen={setOpen} />
+                    <ItemRow change={c} onOpen={setOpen} first={diff.walk_before_id === null} />
                   </motion.div>
                 ))}
               </AnimatePresence>

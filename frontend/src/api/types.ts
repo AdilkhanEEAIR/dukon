@@ -104,6 +104,8 @@ export interface ItemChange {
   loss_per_day: number
   suggested_order: number
   reason: string
+  /** Скорость ещё не измерена: потери и заказ — оценка (выкладка расходится за неделю). */
+  estimated?: boolean
 }
 
 export interface WalkDiff {
@@ -118,8 +120,10 @@ export interface WalkDiff {
   price_mismatch: number
   loss_per_day: number
   empty_slots: number
-  /** Между обходами меньше шести часов: статусы есть, а скорость и потери сервер не считает. */
+  /** Между обходами меньше шести часов: статусы есть, скорость не меряется, потери — оценка. */
   too_soon?: boolean
+  /** Хоть одна позиция посчитана по допущению, а не по измеренной скорости. */
+  estimated?: boolean
 }
 
 export type Mode = 'live' | 'demo'
