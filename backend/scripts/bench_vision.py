@@ -4,18 +4,26 @@
 и цен прочитано, сколько секунд и вызовов ушло. Рядом кладёт картинку с подписанными рамками
 (data/bench/<имя>.jpg) и сводку data/bench/report.md — её цифры идут в README.
 
+Режим --stability: каждое фото разбирается дважды, второй раз со словарём первого, и два разбора
+сравниваются как два обхода. Ожидание: потери 0 сом, изменений 0 — система не выдумывает продажи
+из разброса модели. Эта цифра идёт в README.
+
 Запуск (из папки backend, ключ из .env):
     python -m scripts.bench_vision "C:\\Users\\adilk\\Downloads\\shelves"
     python -m scripts.bench_vision photo1.heic photo2.heic --limit 6
+    python -m scripts.bench_vision photo1.heic --stability
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.config import get_settings
+from app.domain.diff import diff_walks
+from app.domain.schemas import Walk
 from app.models import build_provider
 from app.pipeline.analyze import analyze_photo
 from app.pipeline.images import annotate_named, to_jpeg
@@ -27,6 +35,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Бенч конвейера зрения Dukon")
     parser.add_argument("paths", nargs="+", type=Path, help="папка с фото или отдельные файлы")
     parser.add_argument("--limit", type=int, default=12, help="не больше стольких фото за запуск (бережём кредиты)")
+    parser.add_argument("--stability", action="store_true", help="каждое фото дважды → сравнить как два обхода")
     args = parser.parse_args()
 
     settings = get_settings()
@@ -75,6 +84,23 @@ def main() -> int:
             print(f"   · {item.name} × {item.count} — {price} сом{flag}")
         for note in result.notes:
             print(f"   заметка: {note}")
+        if args.stability:
+            again = analyze_photo(
+                raw, provider, settings.max_image_side, settings.jpeg_quality, known_names=[i.name for i in items]
+            )
+            now = datetime.now(timezone.utc)
+            first = Walk(id="first", created_at=now - timedelta(hours=12), source="live", photos=[result])
+            second = Walk(id="second", created_at=now, source="live", photos=[again])
+            diff = diff_walks(first, second)
+            renamed = [c.name for c in diff.changes if c.status.value in ("new_item", "out_of_stock")]
+            print(
+                f"   стабильность: второй разбор {len(again.items)} позиций, разница как за 12 часов → "
+                f"потери {diff.loss_per_day:g} сом/день, изменений {diff.changed}, "
+                f"пропало/новых {len(renamed)}" + (f" ({', '.join(renamed)})" if renamed else "")
+            )
+            for c in diff.changes:
+                if c.before != c.after:
+                    print(f"   · {c.name}: {c.before} → {c.after} ({c.status.value})")
         jpeg, _, _ = to_jpeg(raw, settings.max_image_side, settings.jpeg_quality)
         out = out_dir / f"{photo.stem}.jpg"
         out.write_bytes(annotate_named(jpeg, items, result.price_tags))
