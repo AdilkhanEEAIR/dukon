@@ -31,7 +31,7 @@ export function Button({ variant = 'primary', size = 'md', block, loading, icon,
   )
   if (to && !disabled && !loading) {
     return (
-      <Link to={to} className={cls} data-variant={variant}>
+      <Link to={to} className={cls} data-variant={variant} {...linkSafe(rest)}>
         {content}
       </Link>
     )
@@ -41,6 +41,15 @@ export function Button({ variant = 'primary', size = 'md', block, loading, icon,
       {content}
     </button>
   )
+}
+
+/** Что из атрибутов кнопки можно отдать ссылке: подписи, тест-метки, стиль. Остальное (type, form…) — нет. */
+function linkSafe(rest: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(rest)) {
+    if (k.startsWith('data-') || k.startsWith('aria-') || k === 'title' || k === 'style' || k === 'id') out[k] = v
+  }
+  return out
 }
 
 interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

@@ -1,6 +1,6 @@
 // Полки: список обходов и отчёт выбранного. Товар открывается в шторке (телефон) / панели (ПК).
 
-import { ArrowLeftRight, Package, RefreshCw, ScanLine, Wallet } from 'lucide-react'
+import { ArrowLeftRight, Images, Package, RefreshCw, ScanLine, Wallet } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -17,7 +17,7 @@ import { Donut, type DonutSlice } from '../components/charts/Donut'
 import { useChartColors } from '../components/charts/theme'
 import { PageActions } from '../components/Nav'
 import { Segmented } from '../components/Segmented'
-import { EmptyState, ErrorState, ReportSkeleton } from '../components/States'
+import { EmptyState, ErrorState, Notice, ReportSkeleton } from '../components/States'
 import { ExportMenu } from '../components/ExportMenu'
 import { reportTable } from '../lib/export'
 import { useAsync } from '../hooks/useAsync'
@@ -70,6 +70,11 @@ export function ShelvesPage() {
           <Button variant="secondary" size="sm" onClick={() => void refetch()} icon={<RefreshCw size={14} />} className="hide-mobile">
             {t('shelves.refresh')}
           </Button>
+          {report && (
+            <Button variant="secondary" size="sm" to={`/app/shelves/${report.walk.id}/seen`} icon={<Images size={14} />} data-testid="to-seen">
+              {t('shelves.seen')}
+            </Button>
+          )}
           {report && <ExportMenu build={(ctx) => reportTable(report, ctx)} testId="export-report" />}
           <PageActions />
         </div>
@@ -135,6 +140,9 @@ function ReportBody({ report }: { report: Report }) {
       <div className="stack" style={{ gap: 18 }}>
         <WalkCalendar walks={walks} current={walk} />
         <p className="small">{since}</p>
+        {diff.walk_before_id === null && (
+          <Notice tone="ok" title={t('shelves.firstWalkTitle')} text={t('shelves.firstWalkBody')} action={<Button size="sm" variant="secondary" to={`/app/shelves/${walk.id}/seen`}>{t('shelves.seen')}</Button>} />
+        )}
 
         <div className="metric-row">
           <div className="metric">
@@ -157,6 +165,11 @@ function ReportBody({ report }: { report: Report }) {
             </span>
             <Money kgs={diff.loss_per_day} className="num-lg metric__money c-out" altBlock />
             <span className="metric__label">{rich('shelves.losing')}</span>
+            {diff.too_soon && (
+              <span className="small" data-testid="too-soon">
+                {t('shelves.tooSoon', { t: formatHours(diff.hours_between, t) })}
+              </span>
+            )}
           </div>
         </div>
 

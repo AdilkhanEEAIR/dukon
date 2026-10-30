@@ -1,6 +1,6 @@
 // Состояния экранов: скелетон, пусто, ошибка с причиной, предупреждение. Один вид на всё приложение.
 
-import { CircleAlert, Inbox, RefreshCw, TriangleAlert, WifiOff, type LucideIcon } from 'lucide-react'
+import { CircleAlert, CircleCheck, Inbox, RefreshCw, TriangleAlert, WifiOff, type LucideIcon } from 'lucide-react'
 import type { CSSProperties, ReactNode } from 'react'
 import { errorCode } from '../api/client'
 import { useT } from '../i18n'
@@ -72,7 +72,8 @@ export function ErrorState({ error, onRetry, secondary }: { error: unknown; onRe
 export function Notice({ tone = 'low', title, text, action }: { tone?: 'low' | 'out' | 'ok'; title: string; text?: string; action?: ReactNode }) {
   return (
     <div className={`notice notice--${tone}`} role="status">
-      <TriangleAlert size={18} className="notice__icon" />
+      {/* Хорошая новость («полка запомнена») — галочка, а не треугольник тревоги. */}
+      {tone === 'ok' ? <CircleCheck size={18} className="notice__icon" /> : <TriangleAlert size={18} className="notice__icon" />}
       <div className="stack stack--tight grow">
         <span className="notice__title">{title}</span>
         {text && <span className="notice__text">{text}</span>}
