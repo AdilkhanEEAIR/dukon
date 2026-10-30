@@ -16,6 +16,15 @@ LOW_SHARE = 0.34
 LOW_ABS = 2
 # Минимальная скорость продаж, ниже которой не рискуем прогнозировать «закончится через N дней».
 MIN_VELOCITY = 0.05
+# Раньше этого срока два обхода не сравниваем по деньгам: разброс модели на ±1–2 штуки,
+# делённый на минуты, давал «миллион сом в день» на одной и той же полке, снятой дважды.
+MIN_HOURS_FOR_VELOCITY = 6.0
+# Разброс модели: одна и та же полка читается с разницей в штуку-две. Такую разницу продажей не считаем.
+NOISE_ABS = 1
+NOISE_SHARE = 0.10
+# Ценник «изменился», только если разница заметна: 89.90 против 89 — это одна цена, прочитанная по-разному.
+PRICE_CHANGE_MIN_KGS = 1.0
+PRICE_CHANGE_MIN_SHARE = 0.02
 # На сколько дней вперёд предлагаем заказ. Для магазина у дома две недели — обычный цикл.
 ORDER_HORIZON_DAYS = 14
 
@@ -39,7 +48,9 @@ _UNIT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(кг|kg|мл|ml|л|l|ltr|лит|г�
 # Слова, которые ничего не говорят о товаре: по ним нельзя различать и нельзя склеивать.
 _STOP = {"и", "с", "в", "на", "the", "of", "and", "with", "x", "х", "г", "мл", "л", "кг", "шт", "рул"}
 # Веса/объёмы считаем одинаковыми, если расходятся не больше чем на эту долю (80 г и 81 г — один батончик).
+# При совпадающей цене допуск шире: модель читает «81 г» то как 80, то как 87.
 WEIGHT_TOLERANCE = 0.06
+WEIGHT_TOLERANCE_SAME_PRICE = 0.12
 PRICE_TOLERANCE = 0.02
 
 
@@ -91,16 +102,17 @@ def same_product(a: ShelfItem, b: ShelfItem) -> bool:
     words_b, weight_b = product_signature(b.name)
     if not words_a or not words_b:
         return False
-    if weight_a and weight_b:
-        if weight_a[0] != weight_b[0]:
-            return False
-        if abs(weight_a[1] - weight_b[1]) > WEIGHT_TOLERANCE * max(weight_a[1], weight_b[1]):
-            return False
     price_same = (
         a.price is not None
         and b.price is not None
         and abs(a.price - b.price) <= PRICE_TOLERANCE * max(a.price, b.price)
     )
+    if weight_a and weight_b:
+        if weight_a[0] != weight_b[0]:
+            return False
+        tolerance = WEIGHT_TOLERANCE_SAME_PRICE if price_same else WEIGHT_TOLERANCE
+        if abs(weight_a[1] - weight_b[1]) > tolerance * max(weight_a[1], weight_b[1]):
+            return False
     if words_a == words_b:
         return True
     # Одно название — часть другого (бренд без варианта): склеиваем только при одинаковой цене,
@@ -183,8 +195,23 @@ def _suggest(velocity: float, remaining: int, before: int | None) -> int:
     return max(need, 0)
 
 
+def _is_noise(before: int, after: int) -> bool:
+    """Разница в штуку или меньше 10 % — разброс чтения, а не продажа."""
+    drop = before - after
+    return 0 < drop and (drop <= NOISE_ABS or drop < NOISE_SHARE * before)
+
+
+def price_changed(before: float | None, after: float | None) -> bool:
+    if before is None or after is None:
+        return False
+    delta = abs(before - after)
+    return delta >= PRICE_CHANGE_MIN_KGS and delta >= PRICE_CHANGE_MIN_SHARE * max(before, after)
+
+
 def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
     hours = hours_between(before, after)
+    # Скорость и потери считаем только через достаточный промежуток; иначе любая погрешность становится деньгами.
+    too_soon = before is not None and hours < MIN_HOURS_FOR_VELOCITY
     before_items = _merge_items(before) if before else {}
     after_items = _merge_items(after)
 
@@ -198,16 +225,18 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
         prev = before_items.get(prev_key) if prev_key else None
         before_count = prev.count if prev else None
         sold = max(before_count - cur.count, 0) if before_count is not None else 0
-        velocity = _velocity(sold, hours)
+        if before_count is not None and cur.count > 0 and _is_noise(before_count, cur.count):
+            sold = 0
+        velocity = 0.0 if too_soon else _velocity(sold, hours)
         price_before = prev.price if prev else None
         price_after = cur.price
         price_known = price_after if price_after is not None else price_before
 
         if cur.count == 0:
             status = Status.OUT
-        elif before_count is not None and (cur.count <= LOW_ABS or cur.count <= before_count * LOW_SHARE):
+        elif before_count is not None and sold > 0 and (cur.count <= LOW_ABS or cur.count <= before_count * LOW_SHARE):
             status = Status.LOW
-        elif price_before is not None and price_after is not None and abs(price_before - price_after) >= 0.5:
+        elif price_changed(price_before, price_after):
             status = Status.PRICE
         elif prev is None:
             status = Status.NEW
@@ -250,7 +279,7 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
     for key, prev in before_items.items():
         if key in matched_before:
             continue
-        velocity = _velocity(prev.count, hours)
+        velocity = 0.0 if too_soon else _velocity(prev.count, hours)
         loss = round(velocity * prev.price, 2) if prev.price and velocity > MIN_VELOCITY else 0.0
         loss_total += loss
         changes.append(
@@ -287,6 +316,7 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
         price_mismatch=counts[Status.PRICE],
         loss_per_day=round(loss_total, 2),
         empty_slots=after.empty_slots,
+        too_soon=too_soon,
     )
 
 
