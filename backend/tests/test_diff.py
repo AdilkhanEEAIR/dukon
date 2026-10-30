@@ -164,3 +164,67 @@ def test_bare_numbers_keep_products_apart():
         ShelfItem(sku="", name="Snickers 100 г (4x25 г)", count=1, price=226),
         ShelfItem(sku="", name="Snickers 100 г", count=1, price=226),
     )
+
+
+def _walk_at(walk_id: str, when: datetime, items):
+    return _walk(walk_id, when, items)
+
+
+def test_same_shelf_twice_two_minutes_apart_costs_nothing():
+    """Главный тест надёжности: одна полка, снятая дважды, с разбросом модели → потери 0, изменений 0."""
+    first = _walk_at(
+        "a",
+        NOW,
+        [
+            ("Snickers 80 г", 10, 103),
+            ("Snickers Super 80 г", 11, 89.9),
+            ("Twix", 3, None),
+            ("Snickers Лесной орех", 6, None),
+        ],
+    )
+    second = _walk_at(
+        "b",
+        NOW + timedelta(minutes=2),
+        [
+            ("Snickers Больше арахиса 87 г", 10, 103),
+            ("Snickers Super 80 г", 9, 89),
+            ("Twix", 2, None),
+            ("Snickers Лесной орех", 6, None),
+        ],
+    )
+    diff = diff_walks(first, second)
+    assert diff.too_soon is True
+    assert diff.loss_per_day == 0
+    assert diff.out_of_stock == 0 and diff.price_mismatch == 0
+    statuses = {c.name: c.status for c in diff.changes}
+    assert statuses["Snickers Больше арахиса 87 г"] == Status.OK, "переименование при той же цене — тот же товар"
+    assert statuses["Twix"] == Status.OK, "3 → 2 — разброс чтения, не продажа"
+    assert all(c.velocity_per_day == 0 for c in diff.changes)
+    assert diff.changed == 0
+
+
+def test_real_sales_after_half_a_day_still_count():
+    before = _walk_at("a", NOW - timedelta(hours=12), [("Cola", 10, 95), ("Water", 10, 40)])
+    after = _walk_at("b", NOW, [("Cola", 0, 95), ("Water", 6, 40)])
+    diff = diff_walks(before, after)
+    assert diff.too_soon is False
+    by = {c.name: c for c in diff.changes}
+    assert by["Cola"].status == Status.OUT and by["Cola"].loss_per_day > 0
+    assert by["Water"].sold == 4 and by["Water"].velocity_per_day == 8.0
+
+
+def test_price_change_needs_a_whole_som_and_two_percent():
+    before = _walk_at("a", NOW - timedelta(days=1), [("Super", 10, 89.9), ("Milk", 5, 170), ("Gum", 20, 15)])
+    after = _walk_at("b", NOW, [("Super", 10, 89), ("Milk", 5, 185), ("Gum", 20, 16)])
+    by = {c.name: c.status for c in diff_walks(before, after).changes}
+    assert by["Super"] == Status.OK, "89.90 → 89 — одна цена, прочитанная по-разному"
+    assert by["Milk"] == Status.PRICE
+    assert by["Gum"] == Status.PRICE, "15 → 16 — целый сом и больше 2 %"
+
+
+def test_weight_tolerance_widens_when_price_matches():
+    a = ShelfItem(sku="", name="Snickers 80 г", count=1, price=103)
+    b = ShelfItem(sku="", name="Snickers Больше арахиса 87 г", count=1, price=103)
+    c = ShelfItem(sku="", name="Snickers Больше арахиса 87 г", count=1, price=None)
+    assert same_product(a, b)
+    assert not same_product(a, c), "без цены 80 и 87 г — слишком разный вес"

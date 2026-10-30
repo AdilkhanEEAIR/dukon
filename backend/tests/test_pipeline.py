@@ -3,7 +3,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
-from app.domain.schemas import Box
+from app.domain.schemas import Box, Concept
 from app.models.base import Scouting, SparkItem, SparkReading
 from app.models.meta import _concrete
 from app.models.mock import MockProvider
@@ -195,3 +195,50 @@ def test_stacked_bars_collapse_into_one_line_per_product():
     assert by_name["Snickers Super 80 г"].needs_review is False, "уверенная рамка того же товара снимает пометку"
     assert by_name["Twix 55 г"].count == 3 and by_name["Twix 55 г"].price == 55.0
     assert [s.index for s in result.shelves] == list(range(1, len(result.shelves) + 1))
+
+
+def test_hint_lists_previous_names_for_spark():
+    from app.pipeline.analyze import build_hint
+
+    hint = build_hint([Concept(query="chocolate bar", label="шоколадные батончики")], ["Snickers 80 г", "", "Twix"])
+    assert "шоколадные батончики" in hint
+    assert "«Snickers 80 г»; «Twix»" in hint and "слово в слово" in hint
+    assert build_hint([], []) == ""
+
+
+def test_known_names_reach_the_reader():
+    seen: dict[str, str] = {}
+
+    class Recorder(MockProvider):
+        def read_shelf(self, annotated_jpeg, box_count, hint=""):
+            seen["hint"] = hint
+            return super().read_shelf(annotated_jpeg, box_count, hint)
+
+    analyze_photo(make_jpeg(), Recorder(), known_names=["Молоко Эльвест 6% 1 л"])
+    assert "Молоко Эльвест 6% 1 л" in seen["hint"]
+
+
+def _jpeg_with_exif(stamp: str, offset: str | None) -> bytes:
+    im = Image.new("RGB", (400, 300), (10, 20, 30))
+    exif = Image.Exif()
+    ifd = exif.get_ifd(0x8769)
+    ifd[0x9003] = stamp
+    if offset:
+        ifd[0x9011] = offset
+    out = BytesIO()
+    im.save(out, format="JPEG", exif=exif.tobytes())
+    return out.getvalue()
+
+
+def test_taken_at_reads_exif_with_and_without_offset():
+    from datetime import datetime, timedelta, timezone
+
+    from app.pipeline.images import taken_at
+
+    with_offset = taken_at(_jpeg_with_exif("2026:10:26 20:11:49", "+06:00"))
+    assert with_offset == datetime(2026, 10, 26, 20, 11, 49, tzinfo=timezone(timedelta(hours=6)))
+    no_offset = taken_at(_jpeg_with_exif("2026:10:26 20:11:49", None), default_offset_hours=3)
+    assert no_offset is not None and no_offset.utcoffset() == timedelta(hours=3)
+    assert taken_at(make_jpeg()) is None
+    assert taken_at(b"garbage") is None
+    assert analyze_photo(_jpeg_with_exif("2026:10:26 20:11:49", "+06:00"), MockProvider()).taken_at == with_offset

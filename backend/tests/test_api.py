@@ -200,3 +200,77 @@ def test_old_cached_answer_is_ignored_and_empty_answers_are_not_cached(live_clie
     r = live_client.post("/walks/analyze", files=other, headers=headers)
     assert r.json()["photos"][0]["shelves"], "после пустого ответа то же фото разбирается заново"
     assert provider.calls > calls
+
+
+def test_walk_is_dated_by_exif_and_photos_can_be_appended(live_client, provider):
+    from tests.test_pipeline import _jpeg_with_exif
+
+    headers = {"x-demo-key": "test-key"}
+    first = _jpeg_with_exif("2026:10:26 20:11:49", "+06:00")
+    r = live_client.post("/walks/analyze", files=[("photos", ("a.jpg", first, "image/jpeg"))], headers=headers)
+    walk = r.json()
+    assert walk["created_at"].startswith("2026-10-26T20:11:49"), "обход датируется съёмкой"
+    assert walk["photos"][0]["taken_at"].startswith("2026-10-26T20:11:49")
+
+    second = make_jpeg(900, 700, (1, 2, 3))
+    r = live_client.post(
+        f"/walks/{walk['id']}/photos", files=[("photos", ("b.jpg", second, "image/jpeg"))], headers=headers
+    )
+    assert r.status_code == 200, r.text
+    assert len(r.json()["photos"]) == 2
+    # Дата обхода, взятая из первого фото, остаётся: фото без EXIF её не сбрасывает.
+    assert r.json()["created_at"].startswith("2026-10-26T20:11:49")
+    assert live_client.get(f"/walks/{walk['id']}").json()["photos"][1]["photo_id"] == r.json()["photos"][1]["photo_id"]
+    assert (
+        live_client.post(
+            "/walks/demo-tue/photos", files=[("photos", ("c.jpg", second, "image/jpeg"))], headers=headers
+        ).status_code
+        == 404
+    )
+
+
+def test_previous_walk_names_are_passed_to_the_reader(live_client, provider):
+    hints: list[str] = []
+    original = provider.read_shelf
+
+    def record(annotated_jpeg, box_count, hint=""):
+        hints.append(hint)
+        return original(annotated_jpeg, box_count, hint)
+
+    provider.read_shelf = record
+    try:
+        headers = {"x-demo-key": "test-key"}
+        first = live_client.post(
+            "/walks/analyze",
+            files=[("photos", ("a.jpg", make_jpeg(800, 600, (9, 9, 9)), "image/jpeg"))],
+            headers=headers,
+        ).json()
+        names = [i["name"] for p in first["photos"] for s in p["shelves"] for i in s["items"]]
+        live_client.post(
+            "/walks/analyze",
+            files=[("photos", ("b.jpg", make_jpeg(800, 600, (8, 8, 8)), "image/jpeg"))],
+            headers=headers,
+        )
+    finally:
+        provider.read_shelf = original
+    assert "прошлый обход" not in hints[0]
+    assert all(n in hints[1] for n in names), "второй обход получает словарь первого"
+
+
+def test_cached_photo_without_capture_time_still_dates_the_walk(live_client, storage):
+    """Кэш от прежней версии без taken_at: дата съёмки всё равно берётся из файла."""
+    from app.pipeline.analyze import PIPELINE_VERSION
+    from app.pipeline.images import sha256 as digest_of
+    from tests.test_pipeline import _jpeg_with_exif
+
+    raw = _jpeg_with_exif("2026:10:26 20:11:49", "+06:00")
+    item = {"sku": "twix", "name": "Twix", "count": 3, "price": 55, "price_text": "55", "boxes": [], "confidence": 0.9}
+    old = PhotoAnalysis.model_validate(
+        {"photo_id": "cached01", "width": 400, "height": 300, "shelves": [{"index": 1, "items": [item]}]}
+    )
+    storage.cache_photo(f"{PIPELINE_VERSION}:{digest_of(raw)}", old)
+    walk = live_client.post(
+        "/walks/analyze", files=[("photos", ("a.jpg", raw, "image/jpeg"))], headers={"x-demo-key": "test-key"}
+    ).json()
+    assert walk["photos"][0]["photo_id"] == "cached01", "ответ взят из кэша"
+    assert walk["created_at"].startswith("2026-10-26T20:11:49")
