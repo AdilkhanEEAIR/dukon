@@ -384,3 +384,24 @@ def test_asr_keywords_fit_meta_limit():
     )
     assert out == ["Snickers Creamy Peanut Butter", "Snickers"]
     assert all(len(k) <= 30 for k in out)
+
+
+def test_detect_lang_by_alphabet_and_words():
+    from app.agent.chat import detect_lang
+
+    assert detect_lang("қанша жоғалтып жатырмын", "en") == "kk"
+    assert detect_lang("канча жоготуп жатам", "en") == "ky"
+    assert detect_lang("сколько я теряю", "en") == "ru"
+    assert detect_lang("what am I losing", "ru") == "en"
+    assert detect_lang("¿cuánto pierdo hoy?", "en") == "es"
+    assert detect_lang("मैं कितना खो रहा हूँ", "ru") == "hi"
+    assert detect_lang("", "fr") == "fr"
+
+
+def test_chat_replies_in_the_language_of_the_question(client):
+    r = client.post("/agent/chat", json={"walk_id": "demo-tue", "message": "what am I losing?", "lang": "ru"}).json()
+    assert r["reply"]["lang"] == "en" and "KGS" in r["reply"]["text"]
+    r = client.post(
+        "/agent/chat", json={"walk_id": "demo-tue", "message": "қанша жоғалтып жатырмын", "lang": "en"}
+    ).json()
+    assert r["reply"]["lang"] == "kk" and "сом" in r["reply"]["text"]
