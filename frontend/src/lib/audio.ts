@@ -1,14 +1,22 @@
 // Запись с микрофона в WAV, который принимает голосовая модель Meta: моно, 16 бит, 16 кГц.
 // MediaRecorder отдаёт сжатый webm/mp4; раскодируем его через Web Audio и пересчитываем частоту сами —
 // так результат одинаковый в Chrome, Safari и Firefox, а на сервер уходит ровно тот формат, что нужен.
+// Отдельно — «измеритель»: тот же анализатор громкости без записи, для волн при распознавании браузером.
 
 export const TARGET_RATE = 16_000
+// Сколько дописываем после нажатия «стоп», чтобы не отрезать конец фразы.
+export const TAIL_MS = 400
 
-export interface Recorder {
-  stop: () => Promise<Blob>
-  cancel: () => void
-  /** Громкость 0..1 для живого индикатора в кнопке микрофона. */
+export interface Meter {
+  /** Громкость 0..1 для живого индикатора. */
   level: () => number
+  stop: () => void
+}
+
+export interface Recorder extends Meter {
+  stop: () => void
+  finish: () => Promise<Blob>
+  cancel: () => void
 }
 
 type Ctx = AudioContext
@@ -19,8 +27,12 @@ function audioContextCtor(): CtxCtor | null {
   return w.AudioContext ?? w.webkitAudioContext ?? null
 }
 
+export function canMeter(): boolean {
+  return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && !!audioContextCtor()
+}
+
 export function canRecord(): boolean {
-  return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined' && !!audioContextCtor()
+  return canMeter() && typeof MediaRecorder !== 'undefined'
 }
 
 function pickMime(): string | undefined {
@@ -28,15 +40,12 @@ function pickMime(): string | undefined {
   return types.find((t) => MediaRecorder.isTypeSupported?.(t))
 }
 
-/** Начинает запись. Останавливаем через stop() — получаем WAV. */
-export async function startRecording(): Promise<Recorder> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
-  const mime = pickMime()
-  const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
-  const chunks: BlobPart[] = []
-  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data)
+async function openMic(): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+}
 
-  // Индикатор громкости: анализатор на том же потоке, пока идёт запись.
+/** Анализатор громкости на потоке микрофона. stop() отпускает и поток, и аудиоконтекст. */
+function attachMeter(stream: MediaStream): Meter {
   const Ctor = audioContextCtor()!
   const ctx = new Ctor()
   const source = ctx.createMediaStreamSource(stream)
@@ -44,32 +53,56 @@ export async function startRecording(): Promise<Recorder> {
   analyser.fftSize = 512
   source.connect(analyser)
   const buf = new Uint8Array(analyser.frequencyBinCount)
-
-  const cleanup = () => {
-    stream.getTracks().forEach((t) => t.stop())
-    source.disconnect()
-    void ctx.close().catch(() => {})
-  }
-
-  recorder.start(250)
+  let stopped = false
   return {
     level: () => {
+      if (stopped) return 0
       analyser.getByteTimeDomainData(buf)
       let sum = 0
       for (const v of buf) {
         const x = (v - 128) / 128
         sum += x * x
       }
-      return Math.min(1, Math.sqrt(sum / buf.length) * 3)
+      // Подавление шума в браузере делает сигнал тихим: усиливаем, чтобы индикатор жил от обычной речи.
+      return Math.min(1, Math.sqrt(sum / buf.length) * 7)
     },
-    cancel: () => {
-      if (recorder.state !== 'inactive') recorder.stop()
-      cleanup()
+    stop: () => {
+      if (stopped) return
+      stopped = true
+      stream.getTracks().forEach((t) => t.stop())
+      source.disconnect()
+      void ctx.close().catch(() => {})
     },
-    stop: () =>
+  }
+}
+
+/** Только громкость, без записи: волны при распознавании силами браузера, который свой уровень не отдаёт. */
+export async function startMeter(): Promise<Meter> {
+  return attachMeter(await openMic())
+}
+
+/** Начинает запись. finish() → WAV; stop() — просто отпустить микрофон (для Meter-совместимости). */
+export async function startRecording(): Promise<Recorder> {
+  const stream = await openMic()
+  const mime = pickMime()
+  const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+  const chunks: BlobPart[] = []
+  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data)
+  const meter = attachMeter(stream)
+
+  recorder.start(250)
+  const cancel = () => {
+    if (recorder.state !== 'inactive') recorder.stop()
+    meter.stop()
+  }
+  return {
+    level: meter.level,
+    stop: cancel,
+    cancel,
+    finish: () =>
       new Promise<Blob>((resolve, reject) => {
         recorder.onstop = async () => {
-          cleanup()
+          meter.stop()
           try {
             resolve(await toWav(new Blob(chunks, { type: recorder.mimeType || mime || 'audio/webm' })))
           } catch (err) {
@@ -77,11 +110,12 @@ export async function startRecording(): Promise<Recorder> {
           }
         }
         recorder.onerror = () => {
-          cleanup()
+          meter.stop()
           reject(new Error('recorder'))
         }
         if (recorder.state === 'inactive') recorder.onstop(new Event('stop'))
-        else recorder.stop()
+        // Кодек отдаёт звук с задержкой: без паузы хвост последнего слова («…теряю») терялся.
+        else setTimeout(() => recorder.state !== 'inactive' && recorder.stop(), TAIL_MS)
       }),
   }
 }

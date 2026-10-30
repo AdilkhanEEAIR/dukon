@@ -97,3 +97,18 @@
 /* Спокойный режим: без пульса и подпрыгивающих точек. */
 :root[data-motion='calm'] :is(.rule-card--block, .dots i, .mic.is-busy svg) { animation: none; }
 :root[data-motion='calm'] :is(.composer__send, .mic, .speak, .chip) { transition: none; }
+
+/* Индикатор голоса: пять столбиков растут с громкостью (--level 0..1), каждый со своим размахом. */
+.vu { flex: 1 1 auto; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 5px; padding: 0 14px; border-radius: var(--r-md); border: 1px solid color-mix(in oklab, var(--out) 45%, var(--line)); background: var(--surface-2); }
+.vu i { display: block; width: 5px; height: calc(6px + var(--level, 0) * 26px); border-radius: 3px; background: var(--out); transition: height 80ms linear; }
+.vu i:nth-child(2) { height: calc(8px + var(--level, 0) * 30px); }
+.vu i:nth-child(3) { height: calc(10px + var(--level, 0) * 34px); }
+.vu i:nth-child(4) { height: calc(8px + var(--level, 0) * 30px); }
+.vu__text { margin-left: 10px; font-size: 14px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vu--heard { border-color: color-mix(in oklab, var(--ok) 55%, var(--line)); }
+.vu--heard i { background: var(--ok); }
+/* Ждём текст: спиннер крупнее и цвет акцента, чтобы было видно, что запрос ушёл и работает. */
+.vu--busy { border-color: color-mix(in oklab, var(--accent) 55%, var(--line)); background: color-mix(in oklab, var(--accent) 8%, var(--surface-2)); color: var(--accent); gap: 10px; }
+.vu--busy .vu__text { margin-left: 0; color: var(--accent); font-weight: 600; }
+.spin { animation: spin 1s linear infinite; }
+:root[data-motion='calm'] .spin { animation: none; }

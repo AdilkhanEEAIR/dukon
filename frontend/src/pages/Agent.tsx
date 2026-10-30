@@ -312,7 +312,13 @@ export function AgentPage() {
               }
             />
           )}
-          <Composer voice={voice} onSend={(text) => void send(text)} onRun={() => void startRun()} canRun={canRun} running={running} busy={busy} speakOn={speakOn} canSpeak={canSpeak()} onToggleSpeak={() => setSpeakOn((v) => !v)} />
+          <Composer voice={voice} onSend={(text) => void send(text)} onRun={() => void startRun()} canRun={canRun} running={running} busy={busy} speakOn={speakOn} canSpeak={canSpeak()} onToggleSpeak={() =>
+              setSpeakOn((v) => {
+                // Выключили озвучку — диктор замолкает сразу, а не договаривает фразу.
+                if (v) stopSpeaking()
+                return !v
+              })
+            } />
         </section>
 
         <aside className="stack agent-side" style={{ gap: 14 }}>
