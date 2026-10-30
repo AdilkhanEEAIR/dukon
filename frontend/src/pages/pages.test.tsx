@@ -333,6 +333,20 @@ describe('Полки и товар', () => {
     mockFetch({ ...happyRoutes, '/walks/demo-tue/diff': () => jsonResponse({ ...diff, too_soon: true, hours_between: 0.05, loss_per_day: 0 }) })
     renderAt('/app/shelves/demo-tue')
     expect(await screen.findByTestId('too-soon')).toHaveTextContent(/рано сравнивать/)
+    cleanup()
+    // Товар пропал за минуты: потери есть, но это оценка — подпись говорит об этом, а не «рано сравнивать».
+    mockFetch({ ...happyRoutes, '/walks/demo-tue/diff': () => jsonResponse({ ...diff, too_soon: true, estimated: true, hours_between: 0.3 }) })
+    renderAt('/app/shelves/demo-tue')
+    expect(await screen.findByTestId('estimated')).toHaveTextContent(/оценка/)
+    expect(screen.queryByTestId('too-soon')).not.toBeInTheDocument()
+  })
+
+  it('первый обход: строки подписаны «На полке», а не «Новый товар»', async () => {
+    mockFetch({ ...happyRoutes, '/walks/demo-tue/diff': () => jsonResponse({ ...diff, walk_before_id: null, changes: diff.changes.map((c) => ({ ...c, status: 'new_item' as const, before: null })) }) })
+    renderAt('/app/shelves/demo-tue')
+    const rows = await screen.findAllByTestId('item-row')
+    expect(rows[0]).toHaveTextContent('На полке')
+    expect(screen.queryByText('Новый товар')).not.toBeInTheDocument()
   })
 
   it('календарь: неделя вкладками, день с обходом открывает его отчёт, месяц — по кнопке', async () => {
@@ -454,6 +468,31 @@ describe('Обход', () => {
     // Первый обход: «запомнил полку», сравнивать не с чем
     expect(await screen.findByText('Запомнил полку')).toBeInTheDocument()
     expect(screen.getAllByTestId('seen-photo')).toHaveLength(2)
+  })
+
+  it('«Попробовать на примере»: без фото и кода, обход приходит с сервера и открывается «Что я увидел»', async () => {
+    const sampleWalk = { ...walk, id: 'live-sample', source: 'live' as const, shop_id: 'shop-1', label: 'Пример · Глобус' }
+    const fn = mockFetch({
+      ...liveRoutes,
+      '/walks/sample': () => jsonResponse(sampleWalk, 201),
+      '/walks/live-sample': () => jsonResponse(sampleWalk),
+      '/walks/live-sample/diff': () => jsonResponse({ ...diff, walk_before_id: null }),
+    })
+    renderAt('/app/scan')
+    await userEvent.click(await screen.findByTestId('sample-walk'))
+    expect(await screen.findByTestId('seen')).toBeInTheDocument()
+    const call = (fn.mock.calls as [string, RequestInit][]).find(([u]) => u.includes('/walks/sample'))!
+    expect(call[0]).toContain('shop_id=shop-1')
+    expect(call[1].method).toBe('POST')
+    expect((call[1].headers as Record<string, string>)['x-demo-key']).toBeUndefined()
+  })
+
+  it('ссылка судьи ?judge=КОД сохраняет код доступа и убирает его из адреса', async () => {
+    mockFetch(liveRoutes)
+    renderAt('/app/scan?judge=secret-42')
+    expect(await screen.findByText('Доступ судьи включён')).toBeInTheDocument()
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('dukon.settings')!).demoKey).toBe('secret-42'))
+    expect((screen.getByLabelText(/код доступа/i) as HTMLInputElement).value).toBe('secret-42')
   })
 
   it('обход из демо-режима возвращает приложение к своим данным', async () => {

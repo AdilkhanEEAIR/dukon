@@ -1,12 +1,13 @@
 // Экран агента: прогон по событиям (блокировка правилом крупно, исправление, ответ поставщика, итог),
 // утверждение заказов со ссылками в WhatsApp, разговор текстом и голосом, правила, офлайн-повтор из снимка.
 
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { AppRoutes, Providers } from '../App'
 import { parseSse } from '../lib/sse'
 import { encodeWav, resample } from '../lib/audio'
+import { kyrgyzForRussianVoice, pickVoice } from '../lib/speech'
 import { replyText, violationText, weekdayName } from '../lib/agentText'
 import { translate } from '../i18n'
 import { agentRun, approvedOrders, happyRoutes, jsonResponse, mockFetch, rules, seedSettings, sseBody, type Routes } from '../test/fixtures'
@@ -135,7 +136,7 @@ describe('Агент: прогон и утверждение', () => {
     expect(within(card).getByTestId('dairy-day-4')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByTestId('save-rules')).toBeNull()
     await userEvent.click(within(card).getByTestId('dairy-day-5'))
-    await userEvent.click(within(card).getByTestId('save-rules'))
+    await userEvent.click(await within(card).findByTestId('save-rules'))
     expect(await screen.findByText('Правила сохранены')).toBeInTheDocument()
     const put = (fn.mock.calls as [string, RequestInit][]).find(([u, i]) => u.includes('/rules') && i?.method === 'PUT')!
     expect(JSON.parse(String(put[1].body))).toEqual({ ...rules, no_dairy_on: [4, 5] })
@@ -195,6 +196,8 @@ describe('Голос', () => {
     expect(screen.queryByTestId('mic')).toBeNull()
     unmount()
 
+    // Управляемая подделка: шаги распознавания дёргаем из теста, чтобы увидеть волны и спиннер по очереди.
+    const made: FakeRecognition[] = []
     class FakeRecognition {
       lang = ''
       interimResults = false
@@ -203,12 +206,12 @@ describe('Голос', () => {
       onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null = null
       onerror: ((e: { error: string }) => void) | null = null
       onend: (() => void) | null = null
-      start() {
-        setTimeout(() => {
-          this.onresult?.({ results: [[{ transcript: 'сколько теряю' }]] })
-          this.onend?.()
-        }, 10)
+      onspeechstart: (() => void) | null = null
+      onspeechend: (() => void) | null = null
+      constructor() {
+        made.push(this)
       }
+      start() {}
       stop() {}
       abort() {}
     }
@@ -216,9 +219,95 @@ describe('Голос', () => {
     renderAt('/app/agent')
     const mic = await screen.findByTestId('mic')
     expect(mic).toHaveAttribute('data-engine', 'browser')
+    expect(screen.getByTestId('mic-label')).toHaveTextContent('переключите язык на KY')
     await userEvent.click(mic)
+    // Слушаем: волны вместо поля, поле спрятано.
+    expect(await screen.findByTestId('vu')).toHaveTextContent('Слушаю…')
+    expect(screen.getByTestId('chat-input')).not.toBeVisible()
+    const current = made[0]
+    act(() => current.onspeechstart?.())
+    expect(await screen.findByTestId('vu')).toHaveTextContent('Слышу')
+    // Речь кончилась — браузер дорасшифровывает: спиннер.
+    act(() => current.onspeechend?.())
+    expect(await screen.findByTestId('transcribing')).toHaveTextContent('Распознаю…')
+    expect(screen.queryByTestId('vu')).toBeNull()
+    act(() => {
+      current.onresult?.({ results: [[{ transcript: 'сколько теряю' }]] })
+      current.onend?.()
+    })
     expect(await screen.findByText('Сегодня полка теряет 765 сом в день.')).toBeInTheDocument()
     expect(screen.getAllByTestId('msg-user')[0]).toHaveTextContent('сколько теряю')
+    expect(screen.queryByTestId('transcribing')).toBeNull()
+    expect(screen.getByTestId('chat-input')).toBeVisible()
+  })
+
+  it('с микрофоном браузер слушает непрерывно: пауза не обрывает фразу, стоп по кнопке → спиннер → текст', async () => {
+    vi.stubGlobal('AudioContext', class {})
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({}) } })
+    const made: FakeRec[] = []
+    class FakeRec {
+      lang = ''
+      interimResults = false
+      maxAlternatives = 1
+      continuous = false
+      onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null = null
+      onerror: ((e: { error: string }) => void) | null = null
+      onend: (() => void) | null = null
+      onspeechstart: (() => void) | null = null
+      onspeechend: (() => void) | null = null
+      stopped = false
+      constructor() {
+        made.push(this)
+      }
+      start() {}
+      stop() {
+        this.stopped = true
+      }
+      abort() {}
+    }
+    vi.stubGlobal('webkitSpeechRecognition', FakeRec)
+    mockFetch(happyRoutes)
+    renderAt('/app/agent')
+    const mic = await screen.findByTestId('mic')
+    await userEvent.click(mic)
+    await screen.findByTestId('vu')
+    const rec = made[0]
+    expect(rec.continuous).toBe(true)
+    // Пауза в речи: в непрерывном режиме браузерное «speechend» ничего не обрывает.
+    act(() => rec.onspeechend?.())
+    expect(screen.getByTestId('vu')).toBeInTheDocument()
+    expect(screen.queryByTestId('transcribing')).toBeNull()
+    await userEvent.click(screen.getByTestId('mic'))
+    expect(rec.stopped).toBe(true)
+    expect(await screen.findByTestId('transcribing')).toBeInTheDocument()
+    act(() => {
+      rec.onresult?.({ results: [[{ transcript: 'what am I' }], [{ transcript: 'losing' }]] })
+      rec.onend?.()
+    })
+    expect(await screen.findByText('Сегодня полка теряет 765 сом в день.')).toBeInTheDocument()
+    expect(screen.getAllByTestId('msg-user')[0]).toHaveTextContent('what am I losing')
+  })
+
+  it('кыргызский без ключа: браузер его не знает — микрофона нет, подпись честно просит ключ', async () => {
+    // Микрофон и запись в браузере «есть», а ключа и живого сервера нет.
+    vi.stubGlobal('MediaRecorder', class {})
+    vi.stubGlobal('AudioContext', class {})
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({}) } })
+    seedSettings({ motion: 'calm', locale: 'ky' })
+    mockFetch(happyRoutes)
+    renderAt('/app/agent')
+    await screen.findByTestId('chat-input')
+    expect(screen.queryByTestId('mic')).toBeNull()
+    expect(screen.getByTestId('mic-label')).toHaveTextContent('Muse Spark')
+  })
+
+  it('озвучка по-кыргызски: ө/ү/ң заменяем для русского голоса, казахский голос предпочитаем русскому', () => {
+    expect(kyrgyzForRussianVoice('Күнүнө 0 сом жоготуп жатасыз, дүкөнүңүз')).toBe('Кунуно 0 сом жоготуп жатасыз, дуконунуз')
+    const voice = (lang: string) => ({ lang, name: lang, default: false, localService: true, voiceURI: lang }) as SpeechSynthesisVoice
+    expect(pickVoice([voice('ru-RU'), voice('kk-KZ')], 'ky')?.lang).toBe('kk-KZ')
+    expect(pickVoice([voice('ru-RU'), voice('en-US')], 'ky')?.lang).toBe('ru-RU')
+    expect(pickVoice([voice('en-US'), voice('en-GB')], 'en')?.lang).toBe('en-US')
+    expect(pickVoice([voice('de-DE')], 'ru')).toBeNull()
   })
 })
 
