@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { AppRoutes, Providers } from '../App'
@@ -281,6 +281,60 @@ describe('Полки и товар', () => {
     expect(within(screen.getByTestId('empty-state')).getByRole('link', { name: /начать обход/i })).toHaveAttribute('href', '/app/scan')
   })
 
+  it('«Что я увидел»: рамки поверх фото, список с пометками, переход к сравнению; без фото — плашка', async () => {
+    const boxed = {
+      ...walk,
+      photos: [
+        {
+          ...walk.photos[0],
+          evidence: 'boxes' as const,
+          concepts: [{ query: 'chocolate bar', label: 'шоколадные батончики', boxes: 2 }],
+          price_tags: [{ x1: 10, y1: 900, x2: 200, y2: 1000, confidence: 0.95 }],
+          notes: ['Рамка 4 пропущена — край коробки'],
+          shelves: [
+            {
+              index: 0,
+              items: [
+                { sku: 'coca cola 1 л', name: 'Coca-Cola 1 л', count: 2, price: 95, price_text: '95', boxes: [{ x1: 100, y1: 100, x2: 400, y2: 500, confidence: 0.7 }], confidence: 0.9, needs_review: false },
+                { sku: 'twix', name: 'Twix', count: 1, price: null, price_text: '', boxes: [{ x1: 500, y1: 100, x2: 800, y2: 500, confidence: 0.6 }], confidence: 0.6, needs_review: true },
+              ],
+              empty_slots: 0,
+            },
+          ],
+        },
+      ],
+    }
+    mockFetch({ ...happyRoutes, '/walks/demo-tue': () => jsonResponse(boxed) })
+    renderAt('/app/shelves/demo-tue/seen')
+    const page = await screen.findByTestId('seen')
+    expect(await within(page).findByText(/Muse Spark искал: шоколадные батончики/)).toBeInTheDocument()
+    const svg = within(page).getByTestId('seen-boxes')
+    expect(svg.querySelectorAll('rect.box--ok')).toHaveLength(1)
+    expect(svg.querySelectorAll('rect.box--review')).toHaveLength(1)
+    expect(svg.querySelectorAll('rect.box--tag')).toHaveLength(1)
+    const items = within(page).getAllByTestId('seen-item')
+    expect(items).toHaveLength(2)
+    expect(items[1]).toHaveTextContent('проверьте')
+    expect(within(page).getByText('Рамка 4 пропущена — край коробки')).toBeInTheDocument()
+    // Фото нет на сервере (демо) — честная плашка вместо битой картинки
+    fireEvent.error(within(page).getByTestId('seen-img'))
+    expect(await within(page).findByTestId('seen-no-photo')).toBeInTheDocument()
+    // Не первый обход — кнопка сравнения ведёт в отчёт
+    expect(within(page).getByTestId('seen-compare')).toHaveAttribute('href', '/app/shelves/demo-tue')
+  })
+
+  it('отчёт: первый обход — «полка запомнена», слишком рано — подпись под потерями, кнопка «Что я увидел»', async () => {
+    mockFetch({ ...happyRoutes, '/walks/demo-tue/diff': () => jsonResponse({ ...diff, walk_before_id: null }) })
+    renderAt('/app/shelves/demo-tue')
+    expect(await screen.findByText('Полка запомнена')).toBeInTheDocument()
+    expect(screen.getByTestId('to-seen')).toHaveAttribute('href', '/app/shelves/demo-tue/seen')
+    expect(screen.queryByTestId('too-soon')).not.toBeInTheDocument()
+    cleanup()
+    mockFetch({ ...happyRoutes, '/walks/demo-tue/diff': () => jsonResponse({ ...diff, too_soon: true, hours_between: 0.05, loss_per_day: 0 }) })
+    renderAt('/app/shelves/demo-tue')
+    expect(await screen.findByTestId('too-soon')).toHaveTextContent(/рано сравнивать/)
+  })
+
   it('календарь: неделя вкладками, день с обходом открывает его отчёт, месяц — по кнопке', async () => {
     mockFetch(happyRoutes)
     renderAt('/app/shelves/demo-tue')
@@ -369,20 +423,37 @@ describe('Обход', () => {
     expect(within(err).queryByRole('button')).not.toBeInTheDocument()
   })
 
-  it('успех: обход уходит в текущий магазин, затем отчёт', async () => {
+  it('успех: фото уходят по одному в текущий магазин, затем «Что я увидел»', async () => {
     const live = { ...walk, id: 'live-9', source: 'live' as const, shop_id: 'shop-1' }
-    const fn = mockFetch({ ...liveRoutes, '/walks/analyze': () => jsonResponse(live, 201), '/walks/live-9/diff': () => jsonResponse(diff), '/walks/live-9': () => jsonResponse(live) })
+    const twoPhotos = { ...live, photos: [...live.photos, { ...live.photos[0], photo_id: 'p2' }] }
+    const fn = mockFetch({
+      ...liveRoutes,
+      '/walks/analyze': () => new Promise<Response>((r) => setTimeout(() => r(jsonResponse(live, 201)), 120)),
+      '/walks/live-9/photos': () => jsonResponse(twoPhotos),
+      '/walks/live-9/diff': () => jsonResponse({ ...diff, walk_before_id: null }),
+      '/walks/live-9': () => jsonResponse(twoPhotos),
+    })
     const { container } = renderAt('/app/scan')
     await screen.findByTestId('submit')
     // в живом режиме ни «демо-кода», ни «показать демо-результат»
     expect(container.querySelector('main')!.textContent).not.toMatch(/демо/i)
     await userEvent.type(screen.getByLabelText(/код доступа/i), 'dukon-judge')
-    await userEvent.upload(screen.getByTestId('file-input'), new File(['a'], 'a.jpg', { type: 'image/jpeg' }))
+    await userEvent.upload(screen.getByTestId('file-input'), [new File(['a'], 'a.jpg', { type: 'image/jpeg' }), new File(['b'], 'b.jpg', { type: 'image/jpeg' })])
     await userEvent.click(screen.getByTestId('submit'))
-    await waitFor(() => expect(screen.getByTestId('changes-list')).toBeInTheDocument(), { timeout: 3000 })
-    const call = (fn.mock.calls as [string, RequestInit][]).find(([u]) => u.includes('/walks/analyze'))!
-    expect(call[0]).toContain('shop_id=shop-1')
-    expect((call[1].headers as Record<string, string>)['x-device-id']).toBe(DEVICE)
+    // Проценты — числом со знаком, а не словом; подпись «Фото 1 из 2».
+    expect(await screen.findByTestId('pipeline-pct')).toHaveTextContent(/^\d+%$/)
+    expect(screen.getByTestId('pipeline-photo')).toHaveTextContent('Фото 1 из 2')
+    expect(await screen.findByTestId('seen', {}, { timeout: 3000 })).toBeInTheDocument()
+    const calls = fn.mock.calls as [string, RequestInit][]
+    const first = calls.find(([u]) => u.includes('/walks/analyze'))!
+    expect(first[0]).toContain('shop_id=shop-1')
+    expect((first[1].headers as Record<string, string>)['x-device-id']).toBe(DEVICE)
+    expect((first[1].body as FormData).getAll('photos')).toHaveLength(1)
+    const second = calls.find(([u]) => u.includes('/walks/live-9/photos'))!
+    expect((second[1].body as FormData).getAll('photos')).toHaveLength(1)
+    // Первый обход: «запомнил полку», сравнивать не с чем
+    expect(await screen.findByText('Запомнил полку')).toBeInTheDocument()
+    expect(screen.getAllByTestId('seen-photo')).toHaveLength(2)
   })
 
   it('обход из демо-режима возвращает приложение к своим данным', async () => {
@@ -393,7 +464,7 @@ describe('Обход', () => {
     expect(await screen.findByTestId('scan-from-demo')).toHaveTextContent('Дүкөн на Чуй')
     await userEvent.upload(screen.getByTestId('file-input'), new File(['a'], 'a.jpg', { type: 'image/jpeg' }))
     await userEvent.click(screen.getByTestId('submit'))
-    await waitFor(() => expect(screen.getByTestId('changes-list')).toBeInTheDocument(), { timeout: 3000 })
+    await waitFor(() => expect(screen.getByTestId('seen')).toBeInTheDocument(), { timeout: 3000 })
     expect(JSON.parse(localStorage.getItem('dukon.settings')!).dataMode).toBe('auto')
     await waitFor(() => expect(screen.getByTestId('data-switch')).toHaveAttribute('data-state', 'live'))
   })
