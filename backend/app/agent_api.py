@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import threading
@@ -151,7 +152,9 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
         rules = storage.get_rules(walk.shop_id)
         diff = diff_walks(storage.previous_walk(walk), walk)
         items = build_drafts(diff, rules, SUPPLIERS)
-        use_spark = brain == "spark" or (brain == "auto" and live_brain_allowed(walk))
+        # Заказывать нечего — модель не зовём: она придумывает «пробные заказы» по пустому списку
+        # и жжёт кредиты. Сценарий сам скажет хозяину, что всё в наличии.
+        use_spark = bool(items) and (brain == "spark" or (brain == "auto" and live_brain_allowed(walk)))
         if use_spark:
             if not live_brain_allowed(walk):
                 raise HTTPException(
@@ -164,6 +167,9 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
         else:
             engine = ScriptBrain()
             source, model = ("demo" if walk.source == "demo" else "mock"), "script"
+            if not items and walk.source != "demo" and live_brain_allowed(walk):
+                # Живой обход без заказов: прогон честный и живой, просто модели нечего делать.
+                source = "live"
         run = AgentRun(
             id="run-" + uuid.uuid4().hex[:10], walk_id=walk.id, shop_id=walk.shop_id, source=source, model=model
         )
@@ -397,7 +403,8 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
         guard_live(request, settings, storage, limiter)
         words = [w.strip() for w in keywords.split("|") if w.strip()][:50]
         try:
-            result = transcribe(settings, raw, lang_of(lang), words)
+            # Модель слушает до минуты — не держим цикл сервера, иначе /health молчит.
+            result = await asyncio.to_thread(transcribe, settings, raw, lang_of(lang), words)
         except ProviderError as exc:
             if exc.code == "bad_audio":
                 raise HTTPException(415, detail={"code": "bad_audio", "message": str(exc)}) from exc

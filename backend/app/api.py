@@ -13,7 +13,8 @@
   GET    /walks/{id}                     — один обход
   GET    /walks/{id}/diff                — сравнение с предыдущим обходом того же магазина
   GET    /photos/{photo_id}.jpg          — уменьшенное фото обхода (поверх него фронт рисует рамки)
-  POST   /walks/analyze?shop_id=         — живой режим: фото → обход (нужен демо-код)
+  POST   /walks/analyze?shop_id=         — живой режим: фото → обход (нужен демо-код или пробный доступ)
+  POST   /walks/sample?shop_id=          — обход на примере: настоящая полка из samples/, без кода
   POST   /walks/{id}/photos              — добавить фото в свежий живой обход (прогресс по одному фото)
   DELETE /walks?source=live              — очистить живые обходы
 Поставщики, правила, черновики, агент, разговор, утверждение заказов и голос — в agent_api.py.
@@ -21,11 +22,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import io
 import logging
 import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -48,6 +52,8 @@ from .storage import Storage
 log = logging.getLogger("dukon.api")
 
 MAX_PHOTOS_PER_WALK = 12
+# Настоящие фото полки для кнопки «Попробовать на примере».
+SAMPLES_DIR = Path(__file__).resolve().parents[1] / "samples"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 # Больше 20 точек у магазина у дома не бывает; лимит защищает базу от мусора с одного устройства.
 MAX_SHOPS_PER_DEVICE = 20
@@ -266,14 +272,17 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
                 walk.photos.append(cached)
                 continue
             try:
-                analysis = analyze_photo(
+                # Модели думают до минуты: в отдельном потоке, иначе сервер не отвечает даже на /health,
+                # и сайт на это время честно, но зря переключается в демо.
+                analysis = await asyncio.to_thread(
+                    analyze_photo,
                     raw,
                     provider,
                     settings.max_image_side,
                     settings.jpeg_quality,
                     settings.data_dir / "photos",
-                    known_names=known_names,
-                    tz_offset_hours=settings.photo_tz_offset_hours,
+                    known_names,
+                    settings.photo_tz_offset_hours,
                 )
             except ImageError as exc:
                 raise HTTPException(415, detail={"code": "bad_image", "message": f"{upload.filename}: {exc}"}) from exc
@@ -319,7 +328,7 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         # Магазин проверяем до лимитов: чужой магазин не должен тратить чужой бюджет.
         if shop_id and storage.get_shop(shop_id, device_id(x_device_id)) is None:
             raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
-        guard_live(request, settings, storage, limiter)
+        guard_live(request, settings, storage, limiter, trial=True)
         if not photos:
             raise HTTPException(400, detail={"code": "no_photos", "message": "Прикрепите хотя бы одно фото"})
         if len(photos) > MAX_PHOTOS_PER_WALK:
@@ -333,6 +342,31 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
 
         walk = Walk(id="live-" + uuid.uuid4().hex[:10], label=label or _default_label(), source="live", shop_id=shop_id)
         await ingest(walk, photos, vocabulary(walk))
+        date_walk(walk)
+        storage.save_walk(walk)
+        return walk
+
+    @app.post("/walks/sample", response_model=Walk, status_code=201)
+    async def sample_walk(
+        request: Request,
+        shop_id: str | None = Query(default=None, max_length=64),
+        x_device_id: str | None = Header(default=None),
+        _=Depends(deps),
+    ):
+        """Обход на примере: настоящая полка из Бишкека, лежит в samples/. Код не нужен.
+
+        Первый разбор зовёт модели, дальше ответ берётся из кэша — судья видит живой результат
+        за секунду и не тратит кредиты. Дневной потолок и лимит на адрес действуют как обычно.
+        """
+        photos = sorted(SAMPLES_DIR.glob("*.jpg"))
+        if not photos:
+            raise HTTPException(404, detail={"code": "not_found", "message": "Примеров на сервере нет"})
+        if shop_id and storage.get_shop(shop_id, device_id(x_device_id)) is None:
+            raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
+        guard_live(request, settings, storage, limiter, require_key=False)
+        walk = Walk(id="live-" + uuid.uuid4().hex[:10], label="Пример · Глобус", source="live", shop_id=shop_id)
+        uploads = [UploadFile(file=io.BytesIO(p.read_bytes()), filename=p.name) for p in photos[:1]]
+        await ingest(walk, uploads, vocabulary(walk))
         date_walk(walk)
         storage.save_walk(walk)
         return walk
@@ -351,7 +385,7 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
             raise HTTPException(404, detail={"code": "not_found", "message": "Обход не найден"})
         if walk.shop_id and storage.get_shop(walk.shop_id, device_id(x_device_id)) is None:
             raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
-        guard_live(request, settings, storage, limiter)
+        guard_live(request, settings, storage, limiter, trial=True)
         if not photos:
             raise HTTPException(400, detail={"code": "no_photos", "message": "Прикрепите хотя бы одно фото"})
         if len(walk.photos) + len(photos) > MAX_PHOTOS_PER_WALK:
