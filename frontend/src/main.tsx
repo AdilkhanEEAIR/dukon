@@ -10,6 +10,7 @@ import './styles/maps.css'
 import './styles/live.css'
 import './styles/data.css'
 import './styles/agent.css'
+import './styles/seen.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

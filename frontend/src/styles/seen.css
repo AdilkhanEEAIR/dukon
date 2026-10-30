@@ -1,0 +1,36 @@
+/* Заход 1.9: экран «Что я увидел» — фото с рамками и список прочитанного. */
+
+.seen-card { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.seen-card__head { gap: 8px 12px; }
+.seen-card__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (min-width: 900px) {
+  .seen-card__body { grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); }
+}
+
+/* Фото и SVG лежат в одном контейнере с пропорциями снимка: рамки всегда точно на товаре. */
+.seen-photo { position: relative; width: 100%; border-radius: var(--r-md); overflow: hidden; background: var(--surface-2); }
+.seen-photo img { display: block; width: 100%; height: 100%; object-fit: fill; }
+.seen-photo svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.seen-photo--missing { aspect-ratio: 4 / 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--ink-3); border: 1px dashed var(--line); }
+
+.box { fill: transparent; vector-effect: non-scaling-stroke; transition: opacity 180ms, stroke-width 180ms; cursor: pointer; }
+.box--ok { stroke: #37c26b; }
+.box--review { stroke: #ff5a3c; }
+.box--tag { stroke: #f5be14; pointer-events: none; }
+.box.is-selected { fill: rgba(255, 255, 255, 0.18); stroke-width: 4; }
+.box.is-dim { opacity: 0.35; }
+
+.seen-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.seen-item { display: flex; align-items: center; gap: 12px; padding: 10px 8px; border-radius: var(--r-md); border-top: 1px solid var(--line); transition: background-color 160ms; }
+.seen-item:first-child { border-top: 0; }
+.seen-item.is-selected { background: var(--surface-2); }
+.seen-notes { padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-2); }
+
+/* Проценты на загрузке: число крупно, знак — мельче и на той же строке. */
+.num-xl .num-unit { font-size: 0.45em; margin-left: 2px; opacity: 0.7; }
+
+/* На телефоне кнопка в плашке уходит под текст, а не сжимает его в столбик. */
+@media (max-width: 600px) {
+  .notice { flex-wrap: wrap; }
+  .notice > .btn { flex-basis: 100%; }
+}

@@ -45,6 +45,8 @@ export interface PhotoAnalysis {
   concepts?: Concept[]
   price_tags?: Box[]
   seconds?: number
+  /** Когда снято (из EXIF); обход датируется съёмкой, а не загрузкой. */
+  taken_at?: string | null
 }
 
 export type WalkSource = 'live' | 'demo' | 'upload'
@@ -116,6 +118,8 @@ export interface WalkDiff {
   price_mismatch: number
   loss_per_day: number
   empty_slots: number
+  /** Между обходами меньше шести часов: статусы есть, а скорость и потери сервер не считает. */
+  too_soon?: boolean
 }
 
 export type Mode = 'live' | 'demo'

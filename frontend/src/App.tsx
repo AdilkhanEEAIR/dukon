@@ -31,6 +31,7 @@ import { OnboardingPage } from './pages/Onboarding'
 import { OrdersPage } from './pages/Orders'
 import { ScanPage } from './pages/Scan'
 import { SettingsPage } from './pages/Settings'
+import { SeenPage } from './pages/Seen'
 import { ShelvesPage } from './pages/Shelves'
 import { SystemPage } from './pages/System'
 
@@ -180,6 +181,8 @@ function scrollTop() {
 /** Ключ перехода. Обходы одного отчёта (/app/shelves/:id) — одна страница: при выборе дня
  *  в календаре меняется только содержимое (с полосой загрузки и скелетом), а не вся страница. */
 export function transitionKey(pathname: string): string {
+  // «Что я увидел» — отдельная страница: переход отчёт ↔ фото должен быть виден.
+  if (pathname.endsWith('/seen')) return pathname
   return pathname.startsWith('/app/shelves') ? '/app/shelves' : pathname
 }
 
@@ -283,6 +286,7 @@ function AreaRoutes() {
         <Route index element={<HomePage />} />
         <Route path="shelves" element={<ShelvesPage />} />
         <Route path="shelves/:id" element={<ShelvesPage />} />
+        <Route path="shelves/:id/seen" element={<SeenPage />} />
         <Route path="item/:sku" element={<ItemPage />} />
         <Route path="scan" element={<ScanPage />} />
         <Route path="orders" element={<OrdersPage />} />

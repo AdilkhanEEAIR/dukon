@@ -228,6 +228,16 @@ export const api = {
     if (opts.deviceId) headers['x-device-id'] = opts.deviceId
     return request<Walk>(`/walks/analyze${query({ label: opts.label, shop_id: opts.shopId })}`, { method: 'POST', body: form, headers }, 180_000)
   },
+  /** Добавить фото в только что созданный обход: фото уходят по одному, чтобы показывать прогресс по каждому. */
+  addPhotos: (walkId: string, files: File[], opts: { demoKey: string; deviceId?: string }) => {
+    const form = new FormData()
+    for (const f of files) form.append('photos', f, f.name)
+    const headers: Record<string, string> = { 'x-demo-key': opts.demoKey }
+    if (opts.deviceId) headers['x-device-id'] = opts.deviceId
+    return request<Walk>(`/walks/${encodeURIComponent(walkId)}/photos`, { method: 'POST', body: form, headers }, 180_000)
+  },
+  /** Адрес уменьшенного фото обхода: поверх него экран «Что я увидел» рисует рамки. */
+  photoUrl: (photoId: string) => `${API_BASE}/photos/${encodeURIComponent(photoId)}.jpg`,
 }
 
 /** Поток событий прогона: события приходят по одному, в конце — прогон целиком. Без сервера — повтор из снимка. */
