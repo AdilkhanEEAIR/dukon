@@ -51,6 +51,19 @@ Names drift between calls ("Snickers 80 g" vs "Snickers more peanuts 81 g"), whi
 "sold out + new item". `domain/diff.py` matches items across walks by product words, pack weight (±6 %) and price,
 and keeps the earlier key as the item's identity over time.
 
+### Reliability: the same shelf twice must cost nothing
+
+Vision models are not deterministic: the same shelf read twice differs by a unit or two and by a word in a name.
+Without guards that turned into "sold 10 bars in 2 minutes" — a million som a day of imaginary loss. Four guards:
+
+1. **Vocabulary.** Muse Spark gets the product names from the previous walk and is told to reuse them word for word.
+2. **Noise threshold.** A drop of one unit or under 10 % is reading noise, not a sale.
+3. **Minimum interval.** Under six hours between walks the report shows statuses but no velocity and no money.
+4. **Capture time from EXIF.** A walk is dated by when the photos were taken, not when they were uploaded.
+
+`python -m scripts.bench_vision photo.heic --stability` runs each photo twice and diffs the two reads as walks
+12 hours apart. Expected: **0 som/day, 0 changes** on the same shelf.
+
 Bench it on your own photos (uses your key, ≈4–7 model calls per photo):
 
 ```powershell
