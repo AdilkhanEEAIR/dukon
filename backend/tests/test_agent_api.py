@@ -264,6 +264,12 @@ def test_voice_live_validates_wav_and_calls_meta(live_client, monkeypatch):
         return Resp()
 
     monkeypatch.setattr(voice_module.httpx, "post", fake_post)
+
+    # Русский идёт через Spark с аудио; в этом тесте Spark «не принял» — должны честно упасть на Muse Voice.
+    def spark_refuses(settings, wav, lang, keywords):
+        raise voice_module.ProviderError("api", "Meta Model API ответил ошибкой 400", True)
+
+    monkeypatch.setattr(voice_module, "transcribe_with_spark", spark_refuses)
     headers = {"x-demo-key": "test-key"}
     bad = live_client.post(
         "/voice/transcribe", files={"audio": ("v.wav", b"not wav", "audio/wav")}, data={"lang": "ru"}, headers=headers
@@ -313,3 +319,68 @@ def test_voice_translates_meta_errors(live_settings, monkeypatch):
         with pytest.raises(voice_module.ProviderError) as exc:
             voice_module.transcribe(live_settings, wav_bytes(), "en", [])
         assert exc.value.code == expected
+
+
+def test_kyrgyz_voice_goes_through_spark_audio(live_client, monkeypatch):
+    seen: dict = {}
+
+    class Msg:
+        content = "«Канча жоготуп жатам?»"
+
+    class Choice:
+        message = Msg()
+
+    class Completion:
+        choices = [Choice()]
+
+    class Chat:
+        class completions:  # noqa: N801 — повторяем форму SDK
+            @staticmethod
+            def create(**kwargs):
+                seen.update(kwargs)
+                return Completion()
+
+    class FakeClient:
+        def __init__(self, base_url, api_key):
+            self.chat = Chat()
+
+    monkeypatch.setattr(voice_module, "OpenAI", FakeClient)
+
+    def muse_voice_must_not_be_called(*args, **kwargs):
+        raise AssertionError("для кыргызского Muse Voice звать не нужно")
+
+    monkeypatch.setattr(voice_module.httpx, "post", muse_voice_must_not_be_called)
+    r = live_client.post(
+        "/voice/transcribe",
+        files={"audio": ("v.wav", wav_bytes(), "audio/wav")},
+        data={"lang": "ky", "keywords": "Snickers"},
+        headers={"x-demo-key": "test-key"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["text"] == "Канча жоготуп жатам?" and r.json()["model"] == "muse-spark-1.2"
+    assert seen["model"] == "muse-spark-1.2"
+    audio = seen["messages"][1]["content"][0]
+    assert audio["type"] == "input_audio" and audio["input_audio"]["format"] == "wav"
+    assert seen["messages"][1]["content"][1]["text"] == "Расшифруй запись."
+    assert "канча жоготуп жатам" in seen["messages"][0]["content"], "типичные фразы хозяина подсказаны модели"
+    assert "кыргызском" in seen["messages"][0]["content"] and "Snickers" in seen["messages"][0]["content"]
+
+
+def test_spark_echo_of_instruction_becomes_silence():
+    from app.models.voice import _echoes_instruction
+
+    assert _echoes_instruction("Запиши, что я сказал.")
+    assert _echoes_instruction("Расшифруй запись.")
+    assert _echoes_instruction("Верну пустую строку")
+    assert not _echoes_instruction("Канча жоготуп жатам?")
+    assert not _echoes_instruction("закажи колу и молоко")
+
+
+def test_asr_keywords_fit_meta_limit():
+    from app.models.voice import asr_keywords
+
+    out = asr_keywords(
+        ["Snickers Creamy Peanut Butter 36.5 г", "Snickers", "Snickers", "Абсолютнонеразрывноеоченьдлинноеслово"]
+    )
+    assert out == ["Snickers Creamy Peanut Butter", "Snickers"]
+    assert all(len(k) <= 30 for k in out)

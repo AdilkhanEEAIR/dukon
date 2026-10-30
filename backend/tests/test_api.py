@@ -274,3 +274,29 @@ def test_cached_photo_without_capture_time_still_dates_the_walk(live_client, sto
     ).json()
     assert walk["photos"][0]["photo_id"] == "cached01", "ответ взят из кэша"
     assert walk["created_at"].startswith("2026-10-26T20:11:49")
+
+
+def test_trial_without_code_allows_three_walks_per_device_then_asks_for_code(live_client, jpeg_bytes):
+    files = {"photos": ("a.jpg", jpeg_bytes, "image/jpeg")}
+    dev = {"x-device-id": "trial-device-01"}
+    for _ in range(3):
+        assert live_client.post("/walks/analyze", files=files, headers=dev).status_code == 201
+    fourth = live_client.post("/walks/analyze", files=files, headers=dev)
+    assert fourth.status_code == 401 and fourth.json()["detail"]["code"] == "demo_key_required"
+    # С кодом лимит проб не мешает (упираемся только в часовой лимит адреса, он в тестах равен 3).
+    with_key = live_client.post("/walks/analyze", files=files, headers={**dev, "x-demo-key": "test-key"})
+    assert with_key.status_code == 429 and with_key.json()["detail"]["code"] == "rate_limited"
+
+
+def test_sample_walk_needs_no_code_and_is_cached(live_client, provider):
+    dev = {"x-device-id": "judge-device-01"}
+    r = live_client.post("/walks/sample", headers=dev)
+    assert r.status_code == 201, r.text
+    walk = r.json()
+    assert walk["label"].startswith("Пример") and walk["photos"][0]["shelves"]
+    assert walk["created_at"].startswith("2026-10-26T20:11:49"), "пример датирован съёмкой в Глобусе"
+    calls = provider.calls
+    again = live_client.post("/walks/sample", headers=dev).json()
+    assert again["photos"][0]["photo_id"] == walk["photos"][0]["photo_id"]
+    assert provider.calls == calls, "второй раз — из кэша, модели не зовём"
+    assert live_client.get("/health").json()["live_calls_today"] == 1

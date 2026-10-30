@@ -237,3 +237,9 @@ def test_action_dataclass_defaults():
     a = Action("say", {"text": "hi"})
     assert a.call_id == "" and a.args["text"] == "hi"
     assert Category.DAIRY.value == "dairy"
+
+
+def test_script_brain_with_nothing_to_order_finishes_in_one_honest_step():
+    events, result = loop.run(ScriptBrain(), [], Rules(), SUPPLIERS, lang="ru")
+    assert [e.kind for e in events] == ["start", "final"]
+    assert "нечего" in events[-1].text and result.orders == [] and result.total == 0

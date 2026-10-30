@@ -228,3 +228,47 @@ def test_weight_tolerance_widens_when_price_matches():
     c = ShelfItem(sku="", name="Snickers Больше арахиса 87 г", count=1, price=None)
     assert same_product(a, b)
     assert not same_product(a, c), "без цены 80 и 87 г — слишком разный вес"
+
+
+def test_price_misread_is_not_a_price_change_and_keeps_old_price_in_money():
+    before = _walk("a", NOW - timedelta(days=1), [("Snickers 80 г", 10, 103)])
+    after = _walk("b", NOW, [("Snickers 80 г", 0, 226)])  # модель взяла ценник мультипака
+    diff = diff_walks(before, after)
+    c = diff.changes[0]
+    assert c.status == Status.OUT and c.price_after == 103, "чужой ценник не становится новой ценой"
+    assert c.loss_per_day == round(10 * 103, 2)
+
+
+def test_too_soon_never_reports_price_mismatch():
+    before = _walk("a", NOW - timedelta(minutes=3), [("Milk", 5, 170)])
+    after = _walk("b", NOW, [("Milk", 5, 185)])
+    diff = diff_walks(before, after)
+    assert diff.too_soon and diff.price_mismatch == 0 and diff.changes[0].status == Status.OK
+
+
+def test_first_walk_counts_no_changes():
+    diff = diff_walks(None, _walk("a", NOW, [("Cola", 5, 95), ("Milk", 3, 170)]))
+    assert diff.changed == 0 and all(c.status == Status.NEW for c in diff.changes)
+
+
+def test_vanished_item_too_soon_is_an_estimated_loss_and_restores_facing():
+    """Полка снята дважды за 20 минут, батончик пропал целиком: скорость не измерить, но потеря есть —
+    по допущению «выкладка расходится за неделю», с пометкой «оценка»; заказ — вернуть выкладку."""
+    before = _walk_at("a", NOW, [("Snickers 80 г", 7, 100), ("Twix", 5, 80)])
+    after = _walk_at("b", NOW + timedelta(minutes=20), [("Twix", 5, 80)])
+    diff = diff_walks(before, after)
+    assert diff.too_soon is True and diff.estimated is True
+    snick = next(c for c in diff.changes if c.name == "Snickers 80 г")
+    assert snick.status == Status.OUT and snick.estimated is True
+    assert snick.loss_per_day == 100.0, "7 штук за 7 дней → 1 в день × 100 сом"
+    assert snick.suggested_order == 7 and "оценка" in snick.reason
+    twix = next(c for c in diff.changes if c.name == "Twix")
+    assert twix.estimated is False and twix.suggested_order == 0 and twix.loss_per_day == 0
+    assert diff.loss_per_day == 100.0
+
+
+def test_measured_velocity_never_orders_less_than_the_facing():
+    before = _walk_at("a", NOW - timedelta(hours=12), [("Cola", 10, 95)])
+    after = _walk_at("b", NOW, [("Cola", 0, 95)])
+    cola = diff_walks(before, after).changes[0]
+    assert cola.estimated is False and cola.suggested_order >= 10
