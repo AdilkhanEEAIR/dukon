@@ -101,6 +101,8 @@ class PhotoAnalysis(BaseModel):
     price_tags: list[Box] = Field(default_factory=list)
     # Сколько секунд заняли модели — честная цифра для отчёта и для README.
     seconds: float = 0.0
+    # Когда снято (из EXIF). Обход датируется съёмкой, а не загрузкой: фото с телефона часто грузят позже.
+    taken_at: datetime | None = None
 
     @property
     def items(self) -> list[ShelfItem]:
@@ -167,6 +169,8 @@ class WalkDiff(BaseModel):
     price_mismatch: int
     loss_per_day: float = Field(description="Сколько сом в день теряет магазин на пустых местах")
     empty_slots: int = 0
+    # Между обходами меньше шести часов: статусы считаем, а скорость и потери — нет (рано).
+    too_soon: bool = False
 
 
 class OrderLine(BaseModel):

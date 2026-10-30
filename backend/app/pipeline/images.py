@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -39,6 +40,34 @@ def to_jpeg(raw: bytes, max_side: int = 1600, quality: int = 88) -> tuple[bytes,
             return out.getvalue(), im.width, im.height
     except Exception as exc:  # noqa: BLE001
         raise ImageError("Файл не является изображением или повреждён") from exc
+
+
+def taken_at(raw: bytes, default_offset_hours: int = 6) -> datetime | None:
+    """Время съёмки из EXIF (DateTimeOriginal). Телефон пишет его без пояса; если есть OffsetTimeOriginal —
+    берём его, иначе считаем, что снято в поясе магазина. Нет EXIF — None, и обход датируется загрузкой."""
+    try:
+        with Image.open(BytesIO(raw)) as im:
+            exif = im.getexif()
+            ifd = exif.get_ifd(0x8769) if exif else {}
+            stamp = ifd.get(0x9003) or exif.get(0x0132)  # DateTimeOriginal, иначе DateTime
+            offset = ifd.get(0x9011) or ifd.get(0x9010)  # OffsetTimeOriginal / OffsetTime
+    except Exception:  # noqa: BLE001 — любой битый EXIF = «времени нет»
+        return None
+    if not stamp or not isinstance(stamp, str):
+        return None
+    try:
+        naive = datetime.strptime(stamp.strip()[:19], "%Y:%m:%d %H:%M:%S")
+    except ValueError:
+        return None
+    tz = timezone(timedelta(hours=default_offset_hours))
+    if isinstance(offset, str) and len(offset) >= 6 and offset[0] in "+-":
+        try:
+            sign = 1 if offset[0] == "+" else -1
+            hours, minutes = int(offset[1:3]), int(offset[4:6])
+            tz = timezone(sign * timedelta(hours=hours, minutes=minutes))
+        except ValueError:
+            pass
+    return naive.replace(tzinfo=tz)
 
 
 def sha256(data: bytes) -> str:

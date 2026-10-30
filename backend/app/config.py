@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     data_dir: Path = REPO_DIR / "data"
     db_path: Path = REPO_DIR / "data" / "dukon.sqlite3"
 
+    # Пояс магазина для времени съёмки из EXIF без смещения (Бишкек — UTC+6).
+    photo_tz_offset_hours: int = 6
+
     # Во сколько раз уменьшаем фото перед отправкой в модель: экономит токены и время.
     max_image_side: int = 1600
     jpeg_quality: int = 88

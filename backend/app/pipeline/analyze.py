@@ -21,11 +21,11 @@ from ..domain.diff import normalize_sku, same_product
 from ..domain.schemas import Box, Concept, PhotoAnalysis, Shelf, ShelfItem
 from ..models.base import Provider, SparkReading
 from ..models.sam_grammar import dedupe_boxes
-from .images import annotate, save_photo, sha256, to_jpeg
+from .images import annotate, save_photo, sha256, taken_at, to_jpeg
 
 PRICE_TAG_PROMPT = "price tag"
 # Меняется при любой правке конвейера, которая меняет результат: входит в ключ кэша фото.
-PIPELINE_VERSION = "v2"
+PIPELINE_VERSION = "v3"
 # Насколько близко по вертикали должны быть центры боксов, чтобы считаться одним ярусом (доля высоты бокса).
 ROW_TOLERANCE = 0.6
 # Ниже этой уверенности позицию помечаем «проверьте глазами».
@@ -45,6 +45,8 @@ def analyze_photo(
     max_side: int = 1600,
     quality: int = 88,
     photo_dir: Path | None = None,
+    known_names: list[str] | None = None,
+    tz_offset_hours: int = 6,
 ) -> PhotoAnalysis:
     started = time.perf_counter()
     jpeg, width, height = to_jpeg(raw, max_side=max_side, quality=quality)
@@ -56,7 +58,7 @@ def analyze_photo(
     scouting = provider.scout(jpeg)
     calls = 1
     concepts = [Concept(query=c.query, label=c.label) for c in scouting.concepts]
-    hint = ", ".join(c.label or c.query for c in concepts)
+    hint = build_hint(concepts, known_names or [])
 
     boxes: list[Box] = []
     price_tags: list[Box] = []
@@ -93,8 +95,36 @@ def analyze_photo(
     analysis.model_calls = calls
     analysis.concepts = concepts
     analysis.price_tags = price_tags
+    analysis.taken_at = taken_at(raw, tz_offset_hours)
     analysis.seconds = round(time.perf_counter() - started, 1)
     return analysis
+
+
+# Больше имён в подсказку не кладём: длинный список размывает внимание модели и стоит токенов.
+MAX_KNOWN_NAMES = 40
+
+
+def build_hint(concepts: list[Concept], known_names: list[str]) -> str:
+    """Подсказка Spark: что нашла разведка и как назывались товары в прошлый раз.
+
+    Словарь из прошлого обхода — главная защита от «плавающих» названий: без него один и тот же
+    батончик в двух обходах звался «Snickers 80 г» и «Snickers Больше арахиса 87 г» и превращался
+    в «закончился + новый товар».
+    """
+    parts: list[str] = []
+    labels = ", ".join(c.label or c.query for c in concepts)
+    if labels:
+        parts.append(f"Разведка подсказывает, что на полке: {labels}.")
+    names = [n.strip() for n in known_names if n and n.strip()][:MAX_KNOWN_NAMES]
+    if names:
+        listed = "; ".join(f"«{n}»" for n in names)
+        parts.append(
+            "В прошлый обход на этой полке были такие товары: "
+            + listed
+            + ". Если видишь тот же товар — назови его точно так же, слово в слово, с тем же весом. "
+            "Новые товары называй по упаковке."
+        )
+    return " ".join(parts)
 
 
 def _from_boxes(reading: SparkReading, boxes: list[Box], photo_id: str, width: int, height: int) -> PhotoAnalysis:

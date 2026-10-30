@@ -192,14 +192,14 @@ class MetaProvider:
     def read_shelf(self, annotated_jpeg: bytes, box_count: int, hint: str = "") -> SparkReading:
         text = f"На фото {box_count} пронумерованных рамок (1..{box_count})."
         if hint:
-            text += f" Разведка подсказывает, что на полке: {hint}."
+            text += " " + hint
         raw = self._vision_json(SYSTEM_PROMPT, text, annotated_jpeg, SHELF_SCHEMA)
         return SparkReading.model_validate(_parse_json(raw))
 
     def count_items(self, jpeg_bytes: bytes, hint: str = "") -> SparkReading:
         text = "Перечисли и посчитай товары на полке."
         if hint:
-            text += f" Разведка подсказывает, что на полке: {hint}."
+            text += " " + hint
         raw = self._vision_json(COUNT_PROMPT, text, jpeg_bytes, COUNT_SCHEMA)
         return SparkReading.model_validate(_parse_json(raw))
 
