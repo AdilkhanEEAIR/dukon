@@ -6,6 +6,7 @@ import { Camera, Circle, CircleAlert, CircleCheck, FlaskConical, LoaderCircle, M
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, errorCode } from '../api/client'
+import type { Walk } from '../api/types'
 import { useLatest } from '../app/data'
 import { useMode } from '../app/mode'
 import { useSettings } from '../app/settings'
@@ -35,6 +36,8 @@ export function ScanPage() {
   const [phase, setPhase] = useState<Phase>('pick')
   const [error, setError] = useState<unknown>(null)
   const [step, setStep] = useState(0)
+  // Какое фото сейчас разбирается: фото уходят по одному, чтобы прогресс был настоящим, а не нарисованным.
+  const [photoIndex, setPhotoIndex] = useState(0)
   const [demoKey, setDemoKey] = useState(settings.demoKey)
   const [over, setOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -60,25 +63,47 @@ export function ScanPage() {
     setError(null)
     setPhase('uploading')
     setStep(0)
-    const ticker = setInterval(() => setStep((s) => Math.min(s + 1, 2)), 2500)
+    setPhotoIndex(0)
+    // Шаги внутри одного фото: разведка ~8 с, SAM ~5 с, чтение ~25 с. Таймер лишь подсвечивает, где мы примерно.
+    let ticker = setInterval(() => setStep((s) => Math.min(s + 1, 2)), 9000)
+    const restart = () => {
+      clearInterval(ticker)
+      setStep(0)
+      ticker = setInterval(() => setStep((s) => Math.min(s + 1, 2)), 9000)
+    }
+    let walk: Walk | null = null
     try {
       update({ demoKey })
-      const walk = await api.analyze(files, { demoKey, label: new Date().toLocaleDateString(locale), shopId: current?.id, deviceId })
+      const common = { demoKey, deviceId }
+      walk = await api.analyze([files[0]], { ...common, label: new Date().toLocaleDateString(locale), shopId: current?.id })
+      for (let i = 1; i < files.length; i += 1) {
+        setPhotoIndex(i)
+        restart()
+        walk = await api.addPhotos(walk.id, [files[i]], common)
+      }
       setStep(3)
       setPhase('done')
       toast('success', t('scan.done'), t('scan.doneBody', { n: walk.photos.length }))
-      // Из демо — обратно к своим данным; перезагрузка данных случится сама при смене режима.
-      if (mode === 'demo') setView('live')
-      else void reload()
-      void refresh()
-      setTimeout(() => navigate(`/app/shelves/${walk.id}`), 500)
     } catch (err) {
-      setError(err)
-      setPhase('pick')
-      void refresh()
+      if (walk === null) {
+        setError(err)
+        setPhase('pick')
+        void refresh()
+        clearInterval(ticker)
+        return
+      }
+      // Первое фото прошло, дальше сорвалось: обход уже есть — показываем, что успели, и честно говорим сколько.
+      toast('danger', t('scan.partial', { done: walk.photos.length, n: files.length }))
+      setPhase('done')
     } finally {
       clearInterval(ticker)
     }
+    // Из демо — обратно к своим данным; перезагрузка данных случится сама при смене режима.
+    if (mode === 'demo') setView('live')
+    else void reload()
+    void refresh()
+    const id = walk.id
+    setTimeout(() => navigate(`/app/shelves/${id}/seen`), 500)
   }
 
   // Сервер отвечает, но модели недоступны (нет ключа, кредитов, бюджета) — новые обходы на паузе.
@@ -115,8 +140,9 @@ export function ScanPage() {
         <div className="sheet">
           <EmptyState icon={Store} title={t('scan.needShop')} text={t('scan.needShopBody')} action={<Button to="/app/onboarding">{t('scan.needShopCta')}</Button>} />
         </div>
-      ) : phase === 'uploading' ? (
-        <Pipeline step={step} count={files.length} steps={steps} />
+      ) : phase !== 'pick' ? (
+        // «done» — те же шаги на 100 %, пока открывается экран «Что я увидел»: без пустого кадра между ними.
+        <Pipeline step={phase === 'done' ? 3 : step} index={photoIndex} count={files.length} steps={steps} />
       ) : (
         <div className="stack" style={{ gap: 16 }}>
           {liveBlocked && <Notice title={t('scan.liveOff')} text={serverReason !== 'no_api_key' ? capitalize(t(`mode.reasons.${serverReason}`)) : t('scan.liveOffBody')} />}
@@ -207,15 +233,21 @@ function InlineError({ error, onRetry }: { error: unknown; onRetry: () => void }
   )
 }
 
-function Pipeline({ step, count, steps }: { step: number; count: number; steps: string[] }) {
+function Pipeline({ step, index, count, steps }: { step: number; index: number; count: number; steps: string[] }) {
   const { t } = useI18n()
-  const pct = Math.min(99, 20 + step * 30)
+  // Прогресс по всем фото: пройденные фото целиком плюс доля текущего по шагам.
+  const pct = step >= 3 ? 100 : Math.min(99, Math.round(((index + (0.15 + step * 0.28)) / Math.max(1, count)) * 100))
   return (
     <div className="stack" style={{ gap: 20, alignItems: 'center', paddingTop: 32, textAlign: 'center' }} data-testid="pipeline">
-      <span className="num-xl">{pct}</span>
-      <span className="small">{t('scan.percent')}</span>
+      <span className="num-xl" data-testid="pipeline-pct">
+        {pct}
+        <span className="num-unit">%</span>
+      </span>
       <span className="h2">{t('scan.reading')}</span>
-      <span className="small">{t('scan.readingHint', { n: count })}</span>
+      <span className="small" data-testid="pipeline-photo">
+        {count > 1 ? `${t('scan.photoOf', { i: Math.min(index + 1, count), n: count })} · ` : ''}
+        {t('scan.readingHint', { n: count })}
+      </span>
       <div className="bar" style={{ width: '100%', maxWidth: 360 }}>
         <div className="bar__fill" style={{ width: `${pct}%` }} />
       </div>
