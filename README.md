@@ -75,7 +75,7 @@ python -m scripts.probe_sam photo.heic --read                          # raw SAM
 
 ```
 backend/   FastAPI · Python 3.11+ · SQLite · provider adapters (meta / mock)
-frontend/  React 19 · Vite · TypeScript · vitest · motion · lucide · ECharts · i18n (6 languages)
+frontend/  React 19 · Vite · TypeScript · vitest · motion · lucide · ECharts · i18n (7 languages)
 data/      demo seeds; raw photos are git-ignored
 docs/      PLAN.md — build plan by stages
 ```
@@ -89,8 +89,18 @@ cd backend
 conda create -n dukon python=3.12 -y
 conda activate dukon
 pip install -r requirements-dev.txt
-Copy-Item .env.example .env      # put MODEL_API_KEY and PROVIDER=meta here for live mode
 uvicorn app.api:app --reload     # http://localhost:8000/docs
+```
+
+For live mode create `backend/.env` (it is git-ignored) with:
+
+```ini
+PROVIDER=meta
+MODEL_API_KEY=your-meta-key
+DEMO_KEY=choose-a-code-for-judges      # the access code judges enter; change the default
+PHOTO_URL_SECRET=any-long-random-string # signs photo links; keep it stable across restarts
+TRUST_FORWARDED_FOR=true                # only behind a real proxy (Render, Vercel); false locally
+CORS_ORIGINS=http://localhost:5173
 ```
 
 Frontend:
@@ -98,11 +108,12 @@ Frontend:
 ```powershell
 cd frontend
 npm install
-Copy-Item .env.example .env
 npm run dev                      # http://localhost:5173
 ```
 
-Without an API key the backend runs on the deterministic mock provider and two demo walks, so the whole UI works offline.
+Optional `frontend/.env`: `VITE_API_URL=http://localhost:8000` (that is the default).
+
+Without an API key the backend runs on the deterministic mock provider with demo walks: every screen works offline, including the agent and the orders. Uploading your own photos, "Try the sample" and voice need a server with a key — that is what the hosted demo for judges runs.
 
 ## Tests
 
@@ -111,7 +122,7 @@ cd backend;  python -m pytest -q;  python -m ruff check .
 cd frontend; npm run check        # typecheck + lint + tests + build
 ```
 
-Frontend: React 19, TypeScript strict, `motion` for springs and layout animations, `lucide-react` icons, lazy-loaded ECharts for analytics, seven languages (en, ru, ky, es, de, fr), light and dark themes, prices converted from som at the National Bank rate, page transitions and scroll reveal on every block, hand-drawn product icons by category, amounts in som with a live “≈ $” hint, a walk calendar, tactile feedback (ripples, top loading bar, number ticks) and parts that move on their own: a "lost today so far" counter on rolling digits, a clock, "3 min ago" labels that age, a pulsing live dot and pulsing branches with losses on the map. Donut charts with springy segments show the status mix of a walk, the share of loss per branch and where the order money goes; clicking a segment filters the list or highlights the row. The theme switch is the animated Expand toggle from toggles.dev. Animations follow the device's reduce-motion setting (calm fades only) and can be switched in Settings. Requires Node 22.12+.
+Frontend: React 19, TypeScript strict, `motion` for springs and layout animations, `lucide-react` icons, lazy-loaded ECharts for analytics, seven languages (en, ru, ky, kk, es, de, fr), light and dark themes, prices converted from som at the National Bank rate, page transitions and scroll reveal on every block, hand-drawn product icons by category, amounts in som with a live “≈ $” hint, a walk calendar, tactile feedback (ripples, top loading bar, number ticks) and parts that move on their own: a "lost today so far" counter on rolling digits, a clock, "3 min ago" labels that age, a pulsing live dot and pulsing branches with losses on the map. Donut charts with springy segments show the status mix of a walk, the share of loss per branch and where the order money goes; clicking a segment filters the list or highlights the row. The theme switch is the animated Expand toggle from toggles.dev. Animations follow the device's reduce-motion setting (calm fades only) and can be switched in Settings. Requires Node 22.12+.
 
 ## Shops and branches
 
@@ -160,6 +171,19 @@ Without a model key (and for demo walks) the same loop runs on a deterministic s
 **Conversation and voice.** `POST /agent/chat` answers questions about the walk ("what am I losing?") and can change a rule or start the negotiation from a sentence ("no dairy on Friday", "order everything"). The agent answers in the language of the question, not of the interface: ask in Kazakh on an English screen and the reply (and the narration) is Kazakh; the server detects the language by alphabet and typical words and tells Muse Spark to follow the question. On the Agent screen the owner can also speak — press the microphone, talk, and the recording stops by itself after three seconds of silence. Which engine listens depends on the language: **Kyrgyz and Kazakh** go to **Muse Spark 1.2** with audio input (`/voice/transcribe` sends 16-kHz mono WAV plus the shop's product names and the owner's typical questions as hints — no ASR model covers them); the other Cyrillic interface language uses the browser's own recognition (free and better than any cloud model for it); English and the rest go to **Muse Voice Transcribe 1.0** (`/v1/asr/transcribe`). While the owner talks the field shows live volume bars from the microphone, and a spinner while the text is being recognised. Replies are read aloud with the browser's speech synthesis in the reply's language; browsers have no Kyrgyz voice and not always a Kazakh one, so those replies fall back to the nearest Cyrillic voice with ө/ү/ң/ә/қ/ғ/ұ/і mapped to the letters it can say. The agent, the chat and voice are protected like live walks: judge code, per-IP limit, daily budget.
 
 **Orders.** `GET /orders/drafts` groups the walk's recommendations by supplier (packs, delivery day, discount); the Orders screen lets the owner edit quantities, shows what the agent negotiated, and **Approve and send** creates orders with a ready WhatsApp message (`wa.me` link) per supplier. Suppliers in `backend/app/agent/suppliers.py` are sample Bishkek distributors (names and phones are placeholders).
+
+## Security review
+
+There are no accounts: a device code (`x-device-id`, generated once in the browser) owns its shops, walks, photos, agent runs and orders. A self-review with proof-of-concept requests found and fixed:
+
+- **Tenant isolation.** Walks carry an owner. Listing, reading, comparing and deleting walks, agent runs (including the event stream), drafts, chat and orders answer only for the owning device; a foreign id gets `404`, so ids cannot be probed. Demo data stays public.
+- **Signed photo links.** Resized photos are served only through an HMAC-signed URL (`/photos/{hash}.jpg?sig=…`); the signature is bound to the hash and to `PHOTO_URL_SECRET`.
+- **Credit protection.** `X-Forwarded-For` is ignored unless `TRUST_FORWARDED_FOR=true` (behind a real proxy only the last hop counts), so a client cannot reset the per-IP limit by spoofing a header. Trial walks require a well-formed device code; the daily budget is the hard cap that device rotation cannot pass.
+- **Exports.** CSV cells starting with `= + - @` are neutralised, so a price tag reading `=HYPERLINK(...)` cannot become a spreadsheet formula.
+- **Headers.** `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `frame-ancestors 'none'`.
+- Held without changes: uploads reject non-images, decompression bombs, oversize and surplus files; owner rules are enforced by code, not by the model (`agent/verifier.py`), and re-checked on approval; no `dangerouslySetInnerHTML`; `pip-audit` and `npm audit` are clean.
+
+Every item has a test in `backend/tests/test_isolation.py` and `frontend/src/lib/export/export.test.ts`.
 
 ## Live mode and credit protection
 
