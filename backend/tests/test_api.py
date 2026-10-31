@@ -56,10 +56,19 @@ def test_live_disabled_without_key(client, jpeg_bytes):
     assert r.json()["detail"]["code"] == "live_disabled"
 
 
-def test_live_requires_demo_key(live_client, jpeg_bytes):
+def test_live_requires_device_and_then_demo_key(live_client, jpeg_bytes):
+    """Без кода устройства обход не создать (ему некому принадлежать); с устройством без демо-кода —
+    только пробные обходы, дальше 401 (см. test_trial_without_code_…)."""
+    del live_client.headers["x-device-id"]
     r = live_client.post("/walks/analyze", files={"photos": ("a.jpg", jpeg_bytes, "image/jpeg")})
-    assert r.status_code == 401
-    assert r.json()["detail"]["code"] == "demo_key_required"
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "device_required"
+    r = live_client.post(
+        "/walks/analyze",
+        files={"photos": ("a.jpg", jpeg_bytes, "image/jpeg")},
+        headers={"x-device-id": "not a device"},
+    )
+    assert r.status_code == 400
 
 
 def test_live_analyze_creates_walk_and_diff(live_client, provider):
@@ -172,9 +181,13 @@ def test_photo_endpoint_serves_resized_copy_and_rejects_bad_ids(live_client):
     walk = live_client.post("/walks/analyze", files=files, headers={"x-demo-key": "test-key"}).json()
     photo = walk["photos"][0]
     assert photo["evidence"] == "boxes" and photo["concepts"] and photo["price_tags"]
-    r = live_client.get(f"/photos/{photo['photo_id']}.jpg")
+    # Фото открывается только по подписанной ссылке из обхода; голый хэш — «не найдено».
+    assert photo["url"].startswith(f"/photos/{photo['photo_id']}.jpg?sig=")
+    r = live_client.get(photo["url"])
     assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
     assert "immutable" in r.headers["cache-control"]
+    assert live_client.get(f"/photos/{photo['photo_id']}.jpg").status_code == 404
+    assert live_client.get(f"/photos/{photo['photo_id']}.jpg?sig=deadbeef").status_code == 404
     assert live_client.get("/photos/../../etc/passwd.jpg").status_code in (404, 422)
     assert live_client.get("/photos/0000000000000000.jpg").status_code == 404
 

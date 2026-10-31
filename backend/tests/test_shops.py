@@ -10,6 +10,7 @@ OTHER = {"x-device-id": "device-bbbb-2222"}
 
 
 def test_shops_require_device_id(client):
+    del client.headers["x-device-id"]
     r = client.get("/shops")
     assert r.status_code == 400
     assert r.json()["detail"]["code"] == "device_required"
@@ -70,6 +71,7 @@ def test_my_overview_lists_shops_without_walks(client):
     assert len(rows) == 1
     assert rows[0]["walks"] == 0
     assert rows[0]["last_walk_id"] is None
+    del client.headers["x-device-id"]
     assert client.get("/branches/overview").status_code == 400
 
 
@@ -100,6 +102,7 @@ def test_live_walks_are_scoped_and_compared_per_shop(live_client):
     assert a1["shop_id"] == a["id"]
 
     # Второй обход филиала A сравнивается с первым обходом A, а не с B.
+    live_client.headers["x-device-id"] = DEV["x-device-id"]
     assert live_client.get(f"/walks/{a2['id']}/diff").json()["walk_before_id"] == a1["id"]
     assert live_client.get(f"/walks/{b1['id']}/diff").json()["walk_before_id"] is None
     assert len(live_client.get("/walks", params={"shop_id": a["id"]}).json()) == 2

@@ -58,13 +58,20 @@ def provider() -> MockProvider:
 @pytest.fixture
 def client(settings, storage, provider):
     with TestClient(create_app(settings, storage, provider)) as c:
+        # Код устройства по умолчанию: обходы принадлежат устройству, без него живые обращения отвечают 400.
+        c.headers["x-device-id"] = TEST_DEVICE
         yield c
 
 
 @pytest.fixture
 def live_client(live_settings, storage, provider):
     with TestClient(create_app(live_settings, storage, provider)) as c:
+        c.headers["x-device-id"] = TEST_DEVICE
         yield c
+
+
+# Устройство «по умолчанию» для тестов; чужое устройство в тестах изоляции — другой код.
+TEST_DEVICE = "device-tests-0001"
 
 
 def make_jpeg(width: int = 800, height: int = 600, color=(200, 120, 40)) -> bytes:

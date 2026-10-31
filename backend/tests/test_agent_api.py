@@ -19,7 +19,8 @@ DEV = {"x-device-id": "device-agent-0001"}
 def wait_done(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        run = client.get(f"/agent/runs/{run_id}").json()
+        # Прогон виден только владельцу обхода: демо открыто всем, живой — устройству из DEV.
+        run = client.get(f"/agent/runs/{run_id}", headers=DEV).json()
         if run["status"] != "running":
             return run
         time.sleep(0.05)
@@ -161,7 +162,7 @@ def test_live_agent_requires_demo_key_and_counts_budget(live_settings, storage):
         walk = copy.deepcopy(storage.get_walk("demo-tue"))
         before = copy.deepcopy(storage.get_walk("demo-sun"))
         for w, wid in ((before, "live-a"), (walk, "live-b")):
-            w.id, w.source, w.shop_id = wid, "live", shop["id"]
+            w.id, w.source, w.shop_id, w.owner = wid, "live", shop["id"], DEV["x-device-id"]
             storage.save_walk(w)
         # Без демо-кода живой агент не стартует.
         assert client.post("/agent/run", params={"walk_id": "live-b"}, headers=DEV).status_code == 401
