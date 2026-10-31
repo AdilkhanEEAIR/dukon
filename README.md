@@ -101,6 +101,13 @@ DEMO_KEY=choose-a-code-for-judges      # the access code judges enter; change th
 PHOTO_URL_SECRET=any-long-random-string # signs photo links; keep it stable across restarts
 TRUST_FORWARDED_FOR=true                # only behind a real proxy (Render, Vercel); false locally
 CORS_ORIGINS=http://localhost:5173
+PUBLIC_BASE_URL=http://localhost:5173   # where suppliers open the reply link the agent sends them
+SUPPLIER_REPLY_TIMEOUT_S=180            # how long the agent waits for a live supplier before carrying on
+# Optional — WhatsApp Cloud API (Meta). Without these the agent still works through wa.me links.
+WHATSAPP_TOKEN=
+WHATSAPP_PHONE_ID=
+WHATSAPP_VERIFY_TOKEN=choose-any-string
+WHATSAPP_APP_SECRET=
 ```
 
 Frontend:
@@ -160,7 +167,7 @@ Files use the interface language and the selected currency, and demo data is mar
 | tool | what the code does |
 |---|---|
 | `propose_order` | rounds quantities to packs, runs **every owner's rule** (`agent/verifier.py`); on a violation returns `blocked` with the rule, the limit and a fix hint — the model must correct itself |
-| `ask_supplier` | the supplier simulator answers like a sales rep: what is out of stock, the minimum order, the volume discount, the delivery day and a "take more and get 5%" counter-offer |
+| `ask_supplier` | a **live supplier** gets the order in WhatsApp and the agent waits for the answer (see below); a sample supplier is answered by the simulator, which behaves like a sales rep: what is out of stock, the minimum order, the volume discount, the delivery day and a "take more and get 5%" counter-offer |
 | `confirm_order` | builds the order from the supplier's reply and runs the rules again |
 | `skip_item`, `say`, `finish` | explain, skip, finish; `finish` checks the daily total across all suppliers |
 
@@ -170,7 +177,9 @@ Without a model key (and for demo walks) the same loop runs on a deterministic s
 
 **Conversation and voice.** `POST /agent/chat` answers questions about the walk ("what am I losing?") and can change a rule or start the negotiation from a sentence ("no dairy on Friday", "order everything"). The agent answers in the language of the question, not of the interface: ask in Kazakh on an English screen and the reply (and the narration) is Kazakh; the server detects the language by alphabet and typical words and tells Muse Spark to follow the question. On the Agent screen the owner can also speak — press the microphone, talk, and the recording stops by itself after three seconds of silence. Which engine listens depends on the language: **Kyrgyz and Kazakh** go to **Muse Spark 1.2** with audio input (`/voice/transcribe` sends 16-kHz mono WAV plus the shop's product names and the owner's typical questions as hints — no ASR model covers them); the other Cyrillic interface language uses the browser's own recognition (free and better than any cloud model for it); English and the rest go to **Muse Voice Transcribe 1.0** (`/v1/asr/transcribe`). While the owner talks the field shows live volume bars from the microphone, and a spinner while the text is being recognised. Replies are read aloud with the browser's speech synthesis in the reply's language; browsers have no Kyrgyz voice and not always a Kazakh one, so those replies fall back to the nearest Cyrillic voice with ө/ү/ң/ә/қ/ғ/ұ/і mapped to the letters it can say. The agent, the chat and voice are protected like live walks: judge code, per-IP limit, daily budget.
 
-**Orders.** `GET /orders/drafts` groups the walk's recommendations by supplier (packs, delivery day, discount); the Orders screen lets the owner edit quantities, shows what the agent negotiated, and **Approve and send** creates orders with a ready WhatsApp message (`wa.me` link) per supplier. Suppliers in `backend/app/agent/suppliers.py` are sample Bishkek distributors (names and phones are placeholders).
+**Live suppliers in WhatsApp.** The owner adds their own suppliers on the Agent screen (`POST /suppliers?shop_id=`: name, contact, a real WhatsApp number, categories, delivery days, minimum order). Own suppliers come first; the built-in ones (`backend/app/agent/suppliers.py` — Blue River Drinks, Mountain Dairy, Jerry's Snacks & Sweets, Daily Bread Bakery, Grand Bazaar Grocery) are fictional samples that the simulator answers for. When the agent calls `ask_supplier` for a live supplier it opens a **conversation** (`agent/channel.py`): it writes the order to the supplier in the run's language with a one-tap reply link (`/s/<token>`, no login — the link is the secret, 72 h), shows a *waiting* card in the journal with an **Open in WhatsApp** button (or sends the message itself through the **WhatsApp Cloud API** when `WHATSAPP_TOKEN` and `WHATSAPP_PHONE_ID` are set) and waits up to `SUPPLIER_REPLY_TIMEOUT_S`. The supplier answers with a button (all in stock / some items out / another day / cannot deliver) or in free text — on the page or straight in the WhatsApp chat, which reaches the server through `POST /whatsapp/webhook` (signed with `WHATSAPP_APP_SECRET`, matched to the open conversation by phone number). `agent/replies.py` turns the text into the same `SupplierReply` the simulator produces — weekdays in four languages, "Fanta is out", "5% from 100 units", "below our minimum" — with Muse Spark as a JSON-schema fallback for sentences the rules do not understand, and the verifier then runs on it exactly as on a simulated reply. When the agent confirms, the supplier sees the final order in the same conversation (and in WhatsApp). If the supplier is silent, or WhatsApp is down, the run does not hang: after the timeout the simulator answers quietly, the owner still gets an order, and a late reply lands in the conversation log. The event stream survives long waits: `GET /agent/runs/{id}/events?after=N` resumes from the N-th event.
+
+**Orders.** `GET /orders/drafts` groups the walk's recommendations by supplier (packs, delivery day, discount); the Orders screen lets the owner edit quantities, shows what the agent negotiated, and **Approve and send** creates orders with a ready WhatsApp message (`wa.me` link) per supplier.
 
 ## Security review
 
