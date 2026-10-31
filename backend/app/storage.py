@@ -91,6 +91,16 @@ class Storage:
             if "shop_id" not in cols:
                 self._conn.execute("ALTER TABLE walks ADD COLUMN shop_id TEXT")
             self._conn.execute("CREATE INDEX IF NOT EXISTS walks_shop ON walks (shop_id, source, created_at)")
+            # Владелец обхода появился позже: старым обходам даём владельца их магазина, демо — демо-владельца.
+            # Обход без магазина и без владельца остаётся ничьим: его никто не увидит, и это безопаснее, чем все.
+            if "owner" not in cols:
+                self._conn.execute("ALTER TABLE walks ADD COLUMN owner TEXT NOT NULL DEFAULT ''")
+                self._conn.execute(
+                    "UPDATE walks SET owner = COALESCE((SELECT owner FROM shops WHERE shops.id = walks.shop_id), '') "
+                    "WHERE owner = '' AND shop_id IS NOT NULL"
+                )
+                self._conn.execute("UPDATE walks SET owner = 'demo' WHERE source = 'demo' AND owner = ''")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS walks_owner ON walks (owner, source, created_at)")
             # Точка магазина на карте появилась позже — добавляем колонки в старую базу.
             shop_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(shops)")}
             for col in ("lat", "lng"):
@@ -107,18 +117,28 @@ class Storage:
             return self._conn.execute(sql, params).fetchall()
 
     # ---- обходы
+    @staticmethod
+    def _walk(row) -> Walk:
+        # Владелец лежит в своей колонке, а не в JSON: так он не утекает в ответ сервера и не зависит от тела.
+        walk = Walk.model_validate_json(row["body"])
+        walk.owner = row["owner"] or ("demo" if walk.source == "demo" else "")
+        return walk
+
     def save_walk(self, walk: Walk) -> None:
+        owner = walk.owner or ("demo" if walk.source == "demo" else "")
         with self._lock, self._conn:
             self._conn.execute(
-                "INSERT OR REPLACE INTO walks (id, created_at, source, shop_id, body) VALUES (?, ?, ?, ?, ?)",
-                (walk.id, walk.created_at.isoformat(), walk.source, walk.shop_id, walk.model_dump_json()),
+                "INSERT OR REPLACE INTO walks (id, created_at, source, shop_id, owner, body) VALUES (?, ?, ?, ?, ?, ?)",
+                (walk.id, walk.created_at.isoformat(), walk.source, walk.shop_id, owner, walk.model_dump_json()),
             )
 
     def get_walk(self, walk_id: str) -> Walk | None:
-        row = self._one("SELECT body FROM walks WHERE id = ?", (walk_id,))
-        return Walk.model_validate_json(row["body"]) if row else None
+        row = self._one("SELECT body, owner FROM walks WHERE id = ?", (walk_id,))
+        return self._walk(row) if row else None
 
-    def list_walks(self, source: str | None = None, shop_id: str | None = None) -> list[Walk]:
+    def list_walks(self, source: str | None = None, shop_id: str | None = None, owner: str | None = None) -> list[Walk]:
+        """Обходы по источнику, магазину и владельцу. owner=None — без фильтра: только для своих нужд сервера
+        (демо-сводка, тесты); наружу список всегда идёт с владельцем или только демо."""
         where, params = [], []
         if source:
             where.append("source = ?")
@@ -126,25 +146,39 @@ class Storage:
         if shop_id:
             where.append("shop_id = ?")
             params.append(shop_id)
+        if owner is not None:
+            # Демо открыто всем: своё плюс демо, когда просят всё; только своё, когда просят живое.
+            where.append("(owner = ? OR source = 'demo')" if not source or source == "demo" else "owner = ?")
+            params.append(owner)
         clause = " WHERE " + " AND ".join(where) if where else ""
-        query = f"SELECT body FROM walks{clause} ORDER BY created_at ASC"
-        return [Walk.model_validate_json(r["body"]) for r in self._all(query, tuple(params))]
+        query = f"SELECT body, owner FROM walks{clause} ORDER BY created_at ASC"
+        return [self._walk(r) for r in self._all(query, tuple(params))]
 
     def previous_walk(self, walk: Walk) -> Walk | None:
-        """Предыдущий обход того же источника и того же магазина — филиалы между собой не сравниваем."""
+        """Предыдущий обход того же источника, магазина и владельца — чужие и филиалы между собой не сравниваем."""
         row = self._one(
-            "SELECT body FROM walks WHERE source = ? AND shop_id IS ? AND created_at < ? "
+            "SELECT body, owner FROM walks WHERE source = ? AND shop_id IS ? AND owner = ? AND created_at < ? "
             "ORDER BY created_at DESC LIMIT 1",
-            (walk.source, walk.shop_id, walk.created_at.isoformat()),
+            (
+                walk.source,
+                walk.shop_id,
+                walk.owner or ("demo" if walk.source == "demo" else ""),
+                walk.created_at.isoformat(),
+            ),
         )
-        return Walk.model_validate_json(row["body"]) if row else None
+        return self._walk(row) if row else None
 
-    def delete_walks(self, source: str, shop_id: str | None = None) -> int:
+    def delete_walks(self, source: str, shop_id: str | None = None, owner: str | None = None) -> int:
+        """Удаляет обходы источника; с owner — только этого устройства (так и зовёт сервер снаружи)."""
+        where, params = ["source = ?"], [source]
+        if shop_id:
+            where.append("shop_id = ?")
+            params.append(shop_id)
+        if owner is not None:
+            where.append("owner = ?")
+            params.append(owner)
         with self._lock, self._conn:
-            if shop_id:
-                cur = self._conn.execute("DELETE FROM walks WHERE source = ? AND shop_id = ?", (source, shop_id))
-            else:
-                cur = self._conn.execute("DELETE FROM walks WHERE source = ?", (source,))
+            cur = self._conn.execute(f"DELETE FROM walks WHERE {' AND '.join(where)}", tuple(params))
             return cur.rowcount
 
     # ---- магазины (филиалы)

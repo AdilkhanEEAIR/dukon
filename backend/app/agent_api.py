@@ -73,8 +73,10 @@ class ApproveIn(BaseModel):
     drafts: list[SupplierDraft] = Field(min_length=1, max_length=20)
 
 
-def register(app: FastAPI, settings: Settings, storage: Storage, provider, limiter: RateLimiter, device_id) -> None:
-    """device_id — зависимость из api.py: код устройства из заголовка."""
+def register(
+    app: FastAPI, settings: Settings, storage: Storage, provider, limiter: RateLimiter, device_id, walk_access
+) -> None:
+    """device_id — зависимость из api.py: код устройства из заголовка; walk_access — проверка владельца обхода."""
 
     app.state.agent_threads = []
 
@@ -85,11 +87,20 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
     def live_brain_allowed(walk: Walk) -> bool:
         return walk.source != "demo" and settings.live_enabled and spark_client() is not None
 
-    def walk_or_404(walk_id: str) -> Walk:
+    def walk_or_404(walk_id: str, x_device_id: str | None) -> Walk:
+        """Обход по id — и только свой (или демо). Так закрыты и обходы без магазина: у них всё равно есть владелец."""
         walk = storage.get_walk(walk_id)
         if walk is None:
             raise HTTPException(404, detail={"code": "not_found", "message": "Обход не найден"})
-        return walk
+        return walk_access(walk, x_device_id)
+
+    def run_or_404(run_id: str, x_device_id: str | None) -> AgentRun:
+        """Прогон агента принадлежит обходу: чужой обход — чужой прогон, отвечаем 404."""
+        run = storage.get_run(run_id)
+        if run is None:
+            raise HTTPException(404, detail={"code": "not_found", "message": "Прогон не найден"})
+        walk_or_404(run.walk_id, x_device_id)
+        return run
 
     def check_shop_access(shop_id: str | None, x_device_id: str | None) -> None:
         """Демо-магазины открыты всем; чужой живой магазин — нет."""
@@ -125,8 +136,7 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
     # ---- черновики
     @app.get("/orders/drafts", response_model=DraftsResponse)
     def drafts(walk_id: str = Query(max_length=64), x_device_id: str | None = Header(default=None)):
-        walk = walk_or_404(walk_id)
-        check_shop_access(walk.shop_id, x_device_id)
+        walk = walk_or_404(walk_id, x_device_id)
         rules = storage.get_rules(walk.shop_id)
         diff = diff_walks(storage.previous_walk(walk), walk)
         items = build_drafts(diff, rules, SUPPLIERS)
@@ -147,8 +157,7 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
         brain: str = Query(default="auto", pattern="^(auto|script|spark)$"),
         x_device_id: str | None = Header(default=None),
     ):
-        walk = walk_or_404(walk_id)
-        check_shop_access(walk.shop_id, x_device_id)
+        walk = walk_or_404(walk_id, x_device_id)
         rules = storage.get_rules(walk.shop_id)
         diff = diff_walks(storage.previous_walk(walk), walk)
         items = build_drafts(diff, rules, SUPPLIERS)
@@ -214,20 +223,19 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
         return run
 
     @app.get("/agent/runs/latest", response_model=AgentRun | None)
-    def latest_run(walk_id: str = Query(max_length=64)):
+    def latest_run(walk_id: str = Query(max_length=64), x_device_id: str | None = Header(default=None)):
+        walk_or_404(walk_id, x_device_id)
         return storage.latest_run(walk_id)
 
     @app.get("/agent/runs/{run_id}", response_model=AgentRun)
-    def get_run(run_id: str):
-        run = storage.get_run(run_id)
-        if run is None:
-            raise HTTPException(404, detail={"code": "not_found", "message": "Прогон не найден"})
-        return run
+    def get_run(run_id: str, x_device_id: str | None = Header(default=None)):
+        return run_or_404(run_id, x_device_id)
 
     @app.get("/agent/runs/{run_id}/events")
-    def run_events(run_id: str, timeout: float = Query(default=120, ge=1, le=600)):
-        if storage.get_run(run_id) is None:
-            raise HTTPException(404, detail={"code": "not_found", "message": "Прогон не найден"})
+    def run_events(
+        run_id: str, timeout: float = Query(default=120, ge=1, le=600), x_device_id: str | None = Header(default=None)
+    ):
+        run_or_404(run_id, x_device_id)
 
         def stream() -> Iterator[bytes]:
             sent = 0
@@ -256,7 +264,7 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
     @app.post("/agent/chat", response_model=ChatOut)
     def chat(request: Request, body: ChatIn, x_device_id: str | None = Header(default=None)):
         shop_id = body.shop_id
-        walk = storage.get_walk(body.walk_id) if body.walk_id else None
+        walk = walk_or_404(body.walk_id, x_device_id) if body.walk_id else None
         if walk is not None:
             shop_id = walk.shop_id
         check_shop_access(shop_id, x_device_id)
@@ -307,8 +315,7 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
     # ---- утверждение заказов
     @app.post("/orders/approve", response_model=list[Order], status_code=201)
     def approve(body: ApproveIn, x_device_id: str | None = Header(default=None)):
-        walk = walk_or_404(body.walk_id)
-        check_shop_access(walk.shop_id, x_device_id)
+        walk = walk_or_404(body.walk_id, x_device_id)
         rules = storage.get_rules(walk.shop_id)
         shop = storage.get_shop(walk.shop_id, DEMO_OWNER) if walk.shop_id else None
         if shop is None and walk.shop_id and x_device_id:
@@ -365,7 +372,8 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
         order = storage.get_order(order_id)
         if order is None:
             raise HTTPException(404, detail={"code": "not_found", "message": "Заказ не найден"})
-        check_shop_access(order.shop_id, x_device_id)
+        # Заказ принадлежит обходу, обход — устройству: чужой заказ отметить «отправлен» нельзя.
+        walk_or_404(order.walk_id, x_device_id)
         order.status = "sent"
         return storage.save_order(order)
 
@@ -375,7 +383,13 @@ def register(app: FastAPI, settings: Settings, storage: Storage, provider, limit
         walk_id: str | None = Query(default=None, max_length=64),
         x_device_id: str | None = Header(default=None),
     ):
-        check_shop_access(shop_id, x_device_id)
+        # Без магазина и обхода списка нет: иначе это были бы заказы всех пользователей сервера.
+        if not shop_id and not walk_id:
+            raise HTTPException(400, detail={"code": "validation", "message": "Нужен shop_id или walk_id"})
+        if walk_id:
+            walk_or_404(walk_id, x_device_id)
+        else:
+            check_shop_access(shop_id, x_device_id)
         return storage.list_orders(shop_id=shop_id, walk_id=walk_id)
 
     # ---- голос

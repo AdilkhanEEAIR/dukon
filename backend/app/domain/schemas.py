@@ -101,6 +101,8 @@ class PhotoAnalysis(BaseModel):
     price_tags: list[Box] = Field(default_factory=list)
     # Сколько секунд заняли модели — честная цифра для отчёта и для README.
     seconds: float = 0.0
+    # Подписанная ссылка на уменьшенное фото: ставится сервером при отдаче, в базе не хранится по смыслу.
+    url: str | None = None
     # Когда снято (из EXIF). Обход датируется съёмкой, а не загрузкой: фото с телефона часто грузят позже.
     taken_at: datetime | None = None
 
@@ -118,6 +120,8 @@ class Walk(BaseModel):
     source: Literal["live", "demo", "upload"] = "upload"
     # Магазин (филиал), к которому относится обход. У старых обходов его нет — сравниваем их между собой.
     shop_id: str | None = None
+    # Код устройства, создавшего обход: обход читает, сравнивает и удаляет только оно (демо — все).
+    owner: str = Field(default="", exclude=True)
     photos: list[PhotoAnalysis] = Field(default_factory=list)
 
     @property

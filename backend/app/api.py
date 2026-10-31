@@ -12,12 +12,15 @@
   GET    /walks?source=&shop_id=         — список обходов
   GET    /walks/{id}                     — один обход
   GET    /walks/{id}/diff                — сравнение с предыдущим обходом того же магазина
-  GET    /photos/{photo_id}.jpg          — уменьшенное фото обхода (поверх него фронт рисует рамки)
+  GET    /photos/{photo_id}.jpg?sig=     — уменьшенное фото обхода по подписанной ссылке (фронт рисует рамки)
   POST   /walks/analyze?shop_id=         — живой режим: фото → обход (нужен демо-код или пробный доступ)
   POST   /walks/sample?shop_id=          — обход на примере: настоящая полка из samples/, без кода
   POST   /walks/{id}/photos              — добавить фото в свежий живой обход (прогресс по одному фото)
-  DELETE /walks?source=live              — очистить живые обходы
+  DELETE /walks?source=live              — очистить живые обходы этого устройства
 Поставщики, правила, черновики, агент, разговор, утверждение заказов и голос — в agent_api.py.
+
+Доступ: аккаунтов нет, вместо них код устройства (x-device-id). Магазины, обходы, фото, прогоны и заказы
+видит только создавшее их устройство; демо открыто всем. Чужой id отвечает 404, не подтверждая существование.
 """
 
 from __future__ import annotations
@@ -46,7 +49,7 @@ from .models import build_provider
 from .models.meta import ProviderError
 from .pipeline.analyze import PIPELINE_VERSION, analyze_photo
 from .pipeline.images import ImageError, sha256, taken_at
-from .security import RateLimiter, guard_live, today_key
+from .security import DEVICE_ID, PhotoSigner, RateLimiter, SecurityHeadersMiddleware, guard_live, today_key
 from .storage import Storage
 
 log = logging.getLogger("dukon.api")
@@ -57,7 +60,6 @@ SAMPLES_DIR = Path(__file__).resolve().parents[1] / "samples"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 # Больше 20 точек у магазина у дома не бывает; лимит защищает базу от мусора с одного устройства.
 MAX_SHOPS_PER_DEVICE = 20
-DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 PHOTO_ID = re.compile(r"^[a-f0-9]{16}$")
 
 
@@ -88,6 +90,7 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
     storage = storage or Storage(settings.db_path)
     provider = provider or build_provider(settings)
     limiter = RateLimiter(settings.live_calls_per_hour_per_ip)
+    signer = PhotoSigner(settings.photo_url_secret)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -106,6 +109,24 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         limiter,
     )
     app.add_middleware(CORSMiddleware, allow_origins=settings.cors_list, allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    def walk_access(walk: Walk, x_device_id: str | None) -> Walk:
+        """Демо-обходы открыты всем; живой обход — только устройству, которое его сделало.
+
+        Чужой обход отвечает 404, а не 403: так нельзя даже узнать, существует ли id.
+        """
+        if walk.source == "demo":
+            return walk
+        if not x_device_id or not DEVICE_ID.match(x_device_id) or walk.owner != x_device_id:
+            raise HTTPException(404, detail={"code": "not_found", "message": "Обход не найден"})
+        return walk
+
+    def with_urls(walk: Walk) -> Walk:
+        """Подписанные ссылки на фото ставим при отдаче: подпись зависит от секрета сервера, а не от базы."""
+        for photo in walk.photos:
+            photo.url = signer.url(photo.photo_id)
+        return walk
 
     def deps():
         return settings, storage, provider, limiter
@@ -231,25 +252,35 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
     def list_walks(
         source: str | None = Query(default=None, pattern="^(demo|live|upload)$"),
         shop_id: str | None = Query(default=None, max_length=64),
+        x_device_id: str | None = Header(default=None),
     ):
-        return storage.list_walks(source=source, shop_id=shop_id)
+        # Демо видят все; живые обходы — только свои. Без кода устройства живой список пуст, а не чужой.
+        if source == "demo":
+            walks = storage.list_walks(source="demo", shop_id=shop_id)
+        elif source:
+            walks = storage.list_walks(source=source, shop_id=shop_id, owner=device_id(x_device_id))
+        else:
+            owner = x_device_id if x_device_id and DEVICE_ID.match(x_device_id) else DEMO_OWNER
+            walks = storage.list_walks(shop_id=shop_id, owner=owner)
+        return [with_urls(w) for w in walks]
 
     @app.delete("/walks")
-    def clear_walks(source: str = Query(pattern="^(live|upload)$")):
-        return {"deleted": storage.delete_walks(source)}
+    def clear_walks(source: str = Query(pattern="^(live|upload)$"), owner: str = Depends(device_id)):
+        return {"deleted": storage.delete_walks(source, owner=owner)}
 
     @app.get("/walks/{walk_id}", response_model=Walk)
-    def get_walk(walk_id: str):
+    def get_walk(walk_id: str, x_device_id: str | None = Header(default=None)):
         walk = storage.get_walk(walk_id)
         if walk is None:
             raise HTTPException(404, detail={"code": "not_found", "message": "Обход не найден"})
-        return walk
+        return with_urls(walk_access(walk, x_device_id))
 
     @app.get("/walks/{walk_id}/diff", response_model=WalkDiff)
-    def get_diff(walk_id: str):
+    def get_diff(walk_id: str, x_device_id: str | None = Header(default=None)):
         walk = storage.get_walk(walk_id)
         if walk is None:
             raise HTTPException(404, detail={"code": "not_found", "message": "Обход не найден"})
+        walk_access(walk, x_device_id)
         return diff_walks(storage.previous_walk(walk), walk)
 
     async def ingest(walk: Walk, uploads: list[UploadFile], known_names: list[str]) -> int:
@@ -325,8 +356,10 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         x_device_id: str | None = Header(default=None),
         _=Depends(deps),
     ):
-        # Магазин проверяем до лимитов: чужой магазин не должен тратить чужой бюджет.
-        if shop_id and storage.get_shop(shop_id, device_id(x_device_id)) is None:
+        # Код устройства обязателен: он становится владельцем обхода. Магазин проверяем до лимитов:
+        # чужой магазин не должен тратить чужой бюджет.
+        owner = device_id(x_device_id)
+        if shop_id and storage.get_shop(shop_id, owner) is None:
             raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
         guard_live(request, settings, storage, limiter, trial=True)
         if not photos:
@@ -340,11 +373,17 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
                 },
             )
 
-        walk = Walk(id="live-" + uuid.uuid4().hex[:10], label=label or _default_label(), source="live", shop_id=shop_id)
+        walk = Walk(
+            id="live-" + uuid.uuid4().hex[:10],
+            label=label or _default_label(),
+            source="live",
+            shop_id=shop_id,
+            owner=owner,
+        )
         await ingest(walk, photos, vocabulary(walk))
         date_walk(walk)
         storage.save_walk(walk)
-        return walk
+        return with_urls(walk)
 
     @app.post("/walks/sample", response_model=Walk, status_code=201)
     async def sample_walk(
@@ -361,15 +400,18 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         photos = sorted(SAMPLES_DIR.glob("*.jpg"))
         if not photos:
             raise HTTPException(404, detail={"code": "not_found", "message": "Примеров на сервере нет"})
-        if shop_id and storage.get_shop(shop_id, device_id(x_device_id)) is None:
+        owner = device_id(x_device_id)
+        if shop_id and storage.get_shop(shop_id, owner) is None:
             raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
         guard_live(request, settings, storage, limiter, require_key=False)
-        walk = Walk(id="live-" + uuid.uuid4().hex[:10], label="Пример · Глобус", source="live", shop_id=shop_id)
+        walk = Walk(
+            id="live-" + uuid.uuid4().hex[:10], label="Пример · Глобус", source="live", shop_id=shop_id, owner=owner
+        )
         uploads = [UploadFile(file=io.BytesIO(p.read_bytes()), filename=p.name) for p in photos[:1]]
         await ingest(walk, uploads, vocabulary(walk))
         date_walk(walk)
         storage.save_walk(walk)
-        return walk
+        return with_urls(walk)
 
     @app.post("/walks/{walk_id}/photos", response_model=Walk)
     async def add_photos(
@@ -383,8 +425,7 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         walk = storage.get_walk(walk_id)
         if walk is None or walk.source != "live":
             raise HTTPException(404, detail={"code": "not_found", "message": "Обход не найден"})
-        if walk.shop_id and storage.get_shop(walk.shop_id, device_id(x_device_id)) is None:
-            raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
+        walk_access(walk, x_device_id)
         guard_live(request, settings, storage, limiter, trial=True)
         if not photos:
             raise HTTPException(400, detail={"code": "no_photos", "message": "Прикрепите хотя бы одно фото"})
@@ -401,12 +442,13 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         await ingest(walk, photos, names)
         date_walk(walk)
         storage.save_walk(walk)
-        return walk
+        return with_urls(walk)
 
     @app.get("/photos/{photo_id}.jpg")
-    def get_photo(photo_id: str):
+    def get_photo(photo_id: str, sig: str | None = Query(default=None, max_length=64)):
         # Имя файла — хэш, других символов быть не может: это и защита от выхода за папку.
-        if not PHOTO_ID.match(photo_id):
+        # Без верной подписи фото «не найдено»: хэш виден владельцу обхода, подобрать подпись к чужому нельзя.
+        if not PHOTO_ID.match(photo_id) or not signer.verify(photo_id, sig):
             raise HTTPException(404, detail={"code": "not_found", "message": "Фото не найдено"})
         path = settings.data_dir / "photos" / f"{photo_id}.jpg"
         if not path.is_file():
@@ -414,7 +456,7 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         headers = {"Cache-Control": "public, max-age=31536000, immutable"}
         return FileResponse(path, media_type="image/jpeg", headers=headers)
 
-    register_agent(app, settings, storage, provider, limiter, device_id)
+    register_agent(app, settings, storage, provider, limiter, device_id, walk_access)
     return app
 
 
