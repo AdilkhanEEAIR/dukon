@@ -83,6 +83,14 @@ describe('CSV', () => {
     expect(lines.at(-1)).toBe('Итого,,35,16,19,,,765,42')
   })
 
+  it('CSV-инъекция: ведущие = + - @ в названии с ценника гасятся апострофом', () => {
+    const evil = { ...diff, changes: [{ ...diff.changes[0], name: '=HYPERLINK("http://evil","жми")' }, ...diff.changes.slice(1)] }
+    const csv = toCsv(reportTable({ walk, diff: evil }, ctx()))
+    const line = csv.slice(1).split('\r\n')[1]
+    expect(line.startsWith(`"'=HYPERLINK(`)).toBe(true)
+    expect(toCsv({ ...reportTable({ walk, diff }, ctx()), rows: [{ cells: ['+1', '-2', '@x', 'ok'] }], totals: undefined }).split('\r\n')[1]).toBe("'+1,'-2,'@x,ok")
+  })
+
   it('имя файла без запрещённых символов, буквы любого алфавита остаются', () => {
     expect(slug('Магазин «На Чуй» / 2')).toBe('магазин-на-чуй-2')
     expect(slug('???')).toBe('dukon')

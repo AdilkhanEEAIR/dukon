@@ -75,7 +75,10 @@ export function fileName(table: ExportTable, format: ExportFormat): string {
 const csvCell = (v: CellValue): string => {
   if (v === null || v === undefined) return ''
   if (typeof v === 'number') return Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100)
-  return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
+  // Названия и ценники читает модель с упаковки: текст на полке — чужой ввод. Ведущие = + - @ и табуляция
+  // в Excel становятся формулой (=HYPERLINK…), поэтому гасим их апострофом — значение видно, формулой не станет.
+  const safe = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe
 }
 
 /** CSV — для учётных программ: только таблица, числа с точкой, без пробелов-разделителей и валютных знаков.
