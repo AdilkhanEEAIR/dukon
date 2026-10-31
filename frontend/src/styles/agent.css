@@ -112,3 +112,33 @@
 .vu--busy .vu__text { margin-left: 0; color: var(--accent); font-weight: 600; }
 .spin { animation: spin 1s linear infinite; }
 :root[data-motion='calm'] .spin { animation: none; }
+
+/* ================= живой поставщик: ожидание ответа в WhatsApp ================= */
+.wait-card { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: var(--r-md); border: 1px solid color-mix(in oklab, var(--ok) 45%, var(--line)); background: color-mix(in oklab, var(--ok-soft) 60%, var(--surface)); max-width: 620px; }
+.wait-card__icon { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; background: var(--ok); color: #fff; animation: wait-breathe 2.4s var(--ease-smooth) infinite; }
+.wait-card--done { border-style: dashed; background: var(--surface); opacity: 0.8; }
+.wait-card--done .wait-card__icon { animation: none; background: var(--ok-soft); color: var(--ok); }
+.wait-card__timer { font-variant-numeric: tabular-nums; color: var(--ok); font-weight: 600; }
+.wait-card .btn--primary { background: var(--ok); border-color: var(--ok); color: #fff; }
+.bubble--live { border-style: solid; border-color: color-mix(in oklab, var(--ok) 55%, transparent); }
+@keyframes wait-breathe { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--ok) 40%, transparent); } 50% { box-shadow: 0 0 0 8px transparent; } }
+:root[data-motion='calm'] .wait-card__icon { animation: none; }
+.supplier-form { padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-2); }
+.supplier-list__item > .row { width: 100%; }
+
+/* ================= страница поставщика /s/:token (без оболочки приложения) ================= */
+.sreply { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; padding: 24px 16px 40px; background: var(--bg); color: var(--ink); }
+.sreply__card { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 14px; padding: 20px 18px; border-radius: var(--r-lg); border: 1px solid var(--line-strong); background: var(--surface); }
+.sreply__lines { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.sreply__line { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-2); font-size: 15px; }
+.sreply__line label { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.sreply__choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sreply__choices .btn { justify-content: center; min-height: 48px; }
+.sreply__choices .btn.is-on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.sreply__msgs { display: flex; flex-direction: column; gap: 6px; }
+.sreply__msg { padding: 8px 10px; border-radius: var(--r-md); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 92%; }
+.sreply__msg--agent { align-self: flex-start; background: var(--surface-2); }
+.sreply__msg--supplier { align-self: flex-end; background: var(--ok-soft); }
+.sreply__msg--system { align-self: center; font-size: 12px; color: var(--ink-2); background: transparent; }
+.sreply__foot { margin-top: 18px; font-size: 12px; color: var(--ink-2); text-align: center; }
+@media (max-width: 420px) { .sreply__choices { grid-template-columns: 1fr; } }

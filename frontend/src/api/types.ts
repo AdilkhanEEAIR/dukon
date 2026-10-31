@@ -165,6 +165,9 @@ export interface Discount {
   pct: number
 }
 
+/** Как агент разговаривает с поставщиком: симулятор (образец), ссылка-ответ или WhatsApp Cloud API. */
+export type SupplierChannel = 'simulated' | 'link' | 'whatsapp'
+
 export interface Supplier {
   id: string
   name: string
@@ -172,7 +175,12 @@ export interface Supplier {
   name_en?: string
   categories: Category[]
   contact: string
+  contact_en?: string
   phone: string
+  channel?: SupplierChannel
+  /** Поставщик, которого добавил хозяин (настоящий номер), а не встроенный образец. */
+  custom?: boolean
+  shop_id?: string | null
   /** 0 — понедельник … 6 — воскресенье. */
   delivery_days: number[]
   min_order_kgs: number
@@ -231,7 +239,56 @@ export interface DraftsResponse {
   rules: Rules
 }
 
-export type AgentEventKind = 'start' | 'thought' | 'tool_call' | 'verifier_ok' | 'verifier_block' | 'supplier_reply' | 'fix' | 'skip' | 'final' | 'error'
+export type AgentEventKind = 'start' | 'thought' | 'tool_call' | 'verifier_ok' | 'verifier_block' | 'supplier_reply' | 'waiting' | 'fix' | 'skip' | 'final' | 'error'
+
+export interface SupplierIn {
+  name: string
+  contact?: string
+  phone: string
+  categories: Category[]
+  delivery_days: number[]
+  min_order_kgs: number
+  pack_size?: number
+  channel: SupplierChannel
+}
+
+export interface ThreadMessage {
+  sender: 'agent' | 'supplier' | 'system'
+  text: string
+  at: string
+}
+
+export type ThreadStatus = 'waiting' | 'answered' | 'simulated' | 'expired' | 'closed'
+
+/** Разговор агента с живым поставщиком: страница /s/:token показывает его поставщику без входа. */
+export interface SupplierThread {
+  token: string
+  run_id: string
+  walk_id: string
+  shop_id: string | null
+  supplier_id: string
+  supplier_name: string
+  supplier_phone: string
+  shop_name: string
+  channel: SupplierChannel
+  status: ThreadStatus
+  created_at: string
+  expires_at: string
+  draft: SupplierDraft
+  message: string
+  whatsapp_url: string
+  messages: ThreadMessage[]
+  reply: SupplierReplyPayload | null
+  raw_reply: string
+  confirmation: string
+}
+
+export interface SupplierReplyIn {
+  text?: string
+  choice?: 'confirm' | 'out' | 'other_day' | 'decline' | null
+  day?: number | null
+  rejected_skus?: string[]
+}
 
 export interface DraftPayload {
   supplier_id: string

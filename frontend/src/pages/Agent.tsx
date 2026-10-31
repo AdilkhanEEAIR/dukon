@@ -2,10 +2,10 @@
 // Слева — лента: реплики, события прогона по одному, итог с утверждением. Справа — правила хозяина,
 // которые проверяет код, и поставщики. Модель предлагает — код проверяет — хозяин утверждает.
 
-import { Bot, Truck } from 'lucide-react'
+import { Bot, Pencil, Plus, Trash2, Truck } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, errorCode, streamRun } from '../api/client'
-import type { AgentEvent, AgentRun, ChatMessage, Order, Rules, Supplier, SupplierDraft } from '../api/types'
+import type { AgentEvent, AgentRun, ChatMessage, Order, Rules, Supplier, SupplierDraft, SupplierIn } from '../api/types'
 import { useLatest } from '../app/data'
 import { useMode } from '../app/mode'
 import { useSettings } from '../app/settings'
@@ -13,9 +13,11 @@ import { useViewShop } from '../app/shops'
 import { Composer } from '../components/agent/Composer'
 import { RulesCard } from '../components/agent/RulesCard'
 import { RunFeed } from '../components/agent/RunFeed'
+import { SupplierForm } from '../components/agent/SupplierForm'
 import { Button } from '../components/Button'
 import { Input } from '../components/Fields'
 import { PageActions } from '../components/Nav'
+import { Pill } from '../components/Pill'
 import { Notice } from '../components/States'
 import { useToast } from '../components/Toast'
 import { useVoice } from '../hooks/useVoice'
@@ -56,6 +58,9 @@ export function AgentPage() {
   const [savingRules, setSavingRules] = useState(false)
   const [speakOn, setSpeakOn] = useState(() => canSpeak())
   const [needKey, setNeedKey] = useState(false)
+  // Форма своего поставщика: null — закрыта, '' — новый, иначе id редактируемого.
+  const [supplierEdit, setSupplierEdit] = useState<string | null>(null)
+  const [savingSupplier, setSavingSupplier] = useState(false)
   const [keyDraft, setKeyDraft] = useState(settings.demoKey)
   const seq = useRef(0)
   const scroller = useRef<HTMLDivElement>(null)
@@ -66,7 +71,7 @@ export function AgentPage() {
   // Правила, поставщики и уже утверждённые заказы — при смене магазина или обхода.
   useEffect(() => {
     let alive = true
-    void api.suppliers().then((s) => alive && setSuppliers(s)).catch(() => {})
+    void api.suppliers(shopId, dev).then((s) => alive && setSuppliers(s)).catch(() => {})
     void api.rules(shopId, dev).then((r) => alive && setRules(r)).catch(() => {})
     if (walk) void api.orders(shopId, walk.id, dev).then((o) => alive && setOrders(o)).catch(() => {})
     return () => {
@@ -251,6 +256,37 @@ export function AgentPage() {
     [shopId, dev, toast, t],
   )
 
+  // ---- свои поставщики
+  const saveSupplier = useCallback(
+    async (body: SupplierIn) => {
+      setSavingSupplier(true)
+      try {
+        const saved = supplierEdit ? await api.updateSupplier(supplierEdit, body, deviceId) : await api.addSupplier(shopId, body, deviceId)
+        setSuppliers((prev) => (prev.some((s) => s.id === saved.id) ? prev.map((s) => (s.id === saved.id ? saved : s)) : [saved, ...prev]))
+        setSupplierEdit(null)
+        toast('success', t('agent.supplierForm.saved'))
+      } catch (err) {
+        toast('danger', t(`errors.${errorCode(err).code}.title` as TKey), (err as Error).message)
+      } finally {
+        setSavingSupplier(false)
+      }
+    },
+    [supplierEdit, shopId, deviceId, toast, t],
+  )
+  const removeSupplier = useCallback(
+    async (id: string) => {
+      try {
+        await api.deleteSupplier(id, deviceId)
+        setSuppliers((prev) => prev.filter((s) => s.id !== id))
+        if (supplierEdit === id) setSupplierEdit(null)
+        toast('success', t('agent.supplierForm.removed'))
+      } catch (err) {
+        toast('danger', t(`errors.${errorCode(err).code}.title` as TKey))
+      }
+    },
+    [deviceId, supplierEdit, toast, t],
+  )
+
   useEffect(() => () => {
     abort.current?.abort()
     clearTimeout(revealTimer.current)
@@ -331,16 +367,48 @@ export function AgentPage() {
             </div>
             <ul className="supplier-list">
               {suppliers.map((s) => (
-                <li key={s.id} className="supplier-list__item">
-                  <span style={{ fontWeight: 600 }}>{supplierTitle(s, locale)}</span>
-                  <span className="small">
-                    {t('agent.delivers', { days: weekdayList(s.delivery_days, locale) })}
-                    {s.min_order_kgs > 0 && ` · ${t('agent.minOrder', { sum: fmt(s.min_order_kgs) })}`}
-                    {` · ${t('agent.pack', { n: s.pack_size })}`}
-                  </span>
+                <li key={s.id} className="supplier-list__item" data-testid={`supplier-${s.id}`}>
+                  {supplierEdit === s.id ? (
+                    <SupplierForm initial={s} onSave={saveSupplier} onCancel={() => setSupplierEdit(null)} saving={savingSupplier} />
+                  ) : (
+                    <>
+                      <span className="row row--between" style={{ gap: 6 }}>
+                        <span className="row" style={{ gap: 6, minWidth: 0 }}>
+                          <span style={{ fontWeight: 600 }} className="truncate">{supplierTitle(s, locale)}</span>
+                          {s.custom ? <Pill tone="ok">{t('agent.supplierForm.live')}</Pill> : <Pill>{t('agent.supplierForm.sample')}</Pill>}
+                        </span>
+                        {s.custom && (
+                          <span className="row" style={{ gap: 2 }}>
+                            <button type="button" className="icon-btn icon-btn--sm" aria-label={t('agent.supplierForm.edit')} onClick={() => setSupplierEdit(s.id)} data-testid={`supplier-edit-${s.id}`}>
+                              <Pencil size={14} />
+                            </button>
+                            <button type="button" className="icon-btn icon-btn--sm" aria-label={t('agent.supplierForm.remove')} onClick={() => void removeSupplier(s.id)} data-testid={`supplier-remove-${s.id}`}>
+                              <Trash2 size={14} />
+                            </button>
+                          </span>
+                        )}
+                      </span>
+                      <span className="small">
+                        {s.custom && s.phone ? `${s.phone} · ` : ''}
+                        {t('agent.delivers', { days: weekdayList(s.delivery_days, locale) })}
+                        {s.min_order_kgs > 0 && ` · ${t('agent.minOrder', { sum: fmt(s.min_order_kgs) })}`}
+                        {` · ${t('agent.pack', { n: s.pack_size })}`}
+                      </span>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
+            {supplierEdit === '' ? (
+              <SupplierForm onSave={saveSupplier} onCancel={() => setSupplierEdit(null)} saving={savingSupplier} />
+            ) : (
+              <div className="stack stack--tight">
+                {!suppliers.some((s) => s.custom) && <p className="small">{t('agent.supplierForm.empty')}</p>}
+                <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={() => setSupplierEdit('')} disabled={shop.demo && !deviceId} data-testid="supplier-add">
+                  {t('agent.supplierForm.add')}
+                </Button>
+              </div>
+            )}
           </section>
           <div className="sheet sheet--soft sheet--pad stack stack--tight">
             <span className="h3 row" style={{ gap: 8 }}>

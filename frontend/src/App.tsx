@@ -25,6 +25,7 @@ import { BranchesPage } from './pages/Branches'
 import { HomePage } from './pages/Home'
 import { ItemPage } from './pages/Item'
 import { LandingPage } from './pages/Landing'
+import { SupplierReplyPage } from './pages/SupplierReply'
 import { NotFoundPage } from './pages/NotFound'
 import { NotificationsPage } from './pages/Notifications'
 import { OnboardingPage } from './pages/Onboarding'
@@ -305,6 +306,8 @@ function AreaRoutes() {
   return (
     <Routes location={inArea ? current : kept}>
       <Route path="/" element={<LandingPage />} />
+      {/* Страница поставщика: по ссылке из WhatsApp, без входа и без оболочки приложения. */}
+      <Route path="/s/:token" element={<SupplierReplyPage />} />
       <Route path="/app/onboarding" element={<OnboardingGate />} />
       <Route path="/app" element={<AppShell />}>
         <Route index element={<HomePage />} />

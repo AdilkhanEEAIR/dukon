@@ -15,6 +15,9 @@ import type {
   Shop,
   Supplier,
   SupplierDraft,
+  SupplierIn,
+  SupplierReplyIn,
+  SupplierThread,
   Transcript,
   Walk,
   WalkDiff,
@@ -200,7 +203,23 @@ export const api = {
     request<BranchSummary[]>(`/branches/overview${query({ scope })}`, deviceId ? { headers: device(deviceId) } : {}),
 
   // ---- заказы, правила, агент, голос
-  suppliers: () => request<Supplier[]>('/suppliers'),
+  suppliers: (shopId?: string | null, deviceId?: string) => request<Supplier[]>(`/suppliers${query({ shop_id: shopId ?? undefined })}`, { headers: withDevice(deviceId) }),
+  addSupplier: (shopId: string | null, body: SupplierIn, deviceId?: string) => {
+    const init = json(body)
+    return request<Supplier>(`/suppliers${query({ shop_id: shopId ?? undefined })}`, { ...init, method: 'POST', headers: withDevice(deviceId, init.headers as Record<string, string>) })
+  },
+  updateSupplier: (id: string, body: SupplierIn, deviceId?: string) => {
+    const init = json(body)
+    return request<Supplier>(`/suppliers/${encodeURIComponent(id)}`, { ...init, method: 'PUT', headers: withDevice(deviceId, init.headers as Record<string, string>) })
+  },
+  deleteSupplier: (id: string, deviceId?: string) => request<{ deleted: number }>(`/suppliers/${encodeURIComponent(id)}`, { method: 'DELETE', headers: withDevice(deviceId) }),
+  // Страница поставщика: без кода устройства — ссылку знает только тот, кому её прислал агент.
+  thread: (token: string) => request<SupplierThread>(`/s/${encodeURIComponent(token)}`),
+  replyThread: (token: string, body: SupplierReplyIn) => {
+    const init = json(body)
+    return request<SupplierThread>(`/s/${encodeURIComponent(token)}/reply`, { ...init, method: 'POST' })
+  },
+  runThreads: (runId: string, deviceId?: string) => request<SupplierThread[]>(`/agent/runs/${encodeURIComponent(runId)}/threads`, { headers: withDevice(deviceId) }),
   rules: (shopId: string | null, deviceId?: string) => request<Rules>(`/rules${query({ shop_id: shopId ?? undefined })}`, { headers: withDevice(deviceId) }),
   saveRules: (shopId: string | null, rules: Rules, deviceId?: string) => {
     const init = json(rules)
@@ -271,23 +290,34 @@ export async function streamRun(run: AgentRun, onEvent: (ev: AgentEvent) => void
     return offline
   }
   let final: AgentRun | null = null
-  let res: Response
-  try {
-    res = await fetch(`${API_BASE}/agent/runs/${encodeURIComponent(run.id)}/events`, { signal, headers: deviceHeader() })
-  } catch (err) {
-    if ((err as Error).name === 'AbortError') throw new ApiError('timeout', 'timeout', 0, true)
-    throw new ApiError('network', 'network', 0, true)
+  let received = 0
+  // Агент может ждать живого поставщика дольше, чем живёт один SSE-запрос: после «timeout» переподключаемся
+  // с ?after=N и продолжаем с того места, а не показываем события заново.
+  for (let attempt = 0; attempt < 12 && !final; attempt++) {
+    let res: Response
+    let timedOut = false
+    try {
+      res = await fetch(`${API_BASE}/agent/runs/${encodeURIComponent(run.id)}/events?after=${received}`, { signal, headers: deviceHeader() })
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') throw new ApiError('timeout', 'timeout', 0, true)
+      throw new ApiError('network', 'network', 0, true)
+    }
+    if (!res.ok) throw await toApiError(res)
+    await readSse(
+      res,
+      (frame) => {
+        if (frame.event === 'done') final = { ...run, ...(JSON.parse(frame.data) as Partial<AgentRun>) }
+        else if (frame.event === 'timeout') timedOut = true
+        else {
+          received += 1
+          onEvent(JSON.parse(frame.data) as AgentEvent)
+        }
+      },
+      signal,
+    )
+    if (!timedOut) break
   }
-  if (!res.ok) throw await toApiError(res)
-  await readSse(
-    res,
-    (frame) => {
-      if (frame.event === 'done') final = { ...run, ...(JSON.parse(frame.data) as Partial<AgentRun>) }
-      else if (frame.event !== 'timeout') onEvent(JSON.parse(frame.data) as AgentEvent)
-    },
-    signal,
-  )
-  // Поток оборвался без «done» (сервер перезапустился, таймаут) — добираем прогон обычным запросом.
+  // Поток оборвался без «done» (сервер перезапустился) — добираем прогон обычным запросом.
   return final ?? (await api.run(run.id))
 }
 

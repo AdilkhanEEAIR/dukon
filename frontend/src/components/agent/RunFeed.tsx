@@ -3,8 +3,8 @@
 // как собеседник в переписке. В конце — итог с заказами и кнопкой «Утвердить и отправить».
 
 import { AnimatePresence, motion } from 'motion/react'
-import { Bot, Check, CircleAlert, MessageSquareReply, Package, ShieldCheck, ShieldX, SkipForward, Sparkles } from 'lucide-react'
-import { useMemo } from 'react'
+import { Bot, Check, CircleAlert, Copy, MessageCircle, MessageSquareReply, Package, ShieldCheck, ShieldX, SkipForward, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AgentEvent, AgentRun, Order, Supplier, SupplierDraft } from '../../api/types'
 import { useSettings } from '../../app/settings'
 import { useI18n } from '../../i18n'
@@ -14,6 +14,7 @@ import { formatMoney } from '../../lib/format'
 import { Button } from '../Button'
 import { Money } from '../Money'
 import { Pill } from '../Pill'
+import { useToast } from '../Toast'
 import { OrderCard } from './OrderCard'
 
 interface Props {
@@ -43,6 +44,8 @@ export function RunFeed({ events, run, suppliers, orders, approving, onApprove, 
   const minOrder = (id: string | null | undefined) => suppliers.find((s) => s.id === id)?.min_order_kgs
   const visible = useMemo(() => events.filter((e) => e.kind !== 'start'), [events])
   const finished = run && run.status !== 'running'
+  // Поставщики, от которых ответ уже пришёл: их карточка ожидания сворачивается.
+  const answered = useMemo(() => new Set(events.filter((e) => e.kind === 'supplier_reply').map((e) => e.supplier_id)), [events])
 
   return (
     <div className="feed" data-testid={testId} aria-live="polite">
@@ -57,7 +60,7 @@ export function RunFeed({ events, run, suppliers, orders, approving, onApprove, 
             className={`feed__item feed__item--${ev.kind}`}
             data-testid={`event-${ev.kind}`}
           >
-            <EventCard ev={ev} supplierName={supplierName} minOrder={minOrder} fmt={fmt} />
+            <EventCard ev={ev} supplierName={supplierName} minOrder={minOrder} fmt={fmt} answered={answered.has(ev.supplier_id)} />
           </motion.div>
         ))}
       </AnimatePresence>
@@ -71,10 +74,12 @@ export function RunFeed({ events, run, suppliers, orders, approving, onApprove, 
   )
 }
 
-function EventCard({ ev, supplierName, minOrder, fmt }: { ev: AgentEvent; supplierName: (id: string | null | undefined) => string; minOrder: (id: string | null | undefined) => number | undefined; fmt: (kgs: number) => string }) {
+function EventCard({ ev, supplierName, minOrder, fmt, answered }: { ev: AgentEvent; supplierName: (id: string | null | undefined) => string; minOrder: (id: string | null | undefined) => number | undefined; fmt: (kgs: number) => string; answered?: boolean }) {
   const { t, locale, product } = useI18n()
   const name = supplierName(ev.supplier_id)
   switch (ev.kind) {
+    case 'waiting':
+      return <WaitingCard ev={ev} name={name} answered={!!answered} />
     case 'tool_call':
     case 'thought': {
       const label = ev.kind === 'tool_call' ? intentLabel(ev, t, name) : null
@@ -130,9 +135,10 @@ function EventCard({ ev, supplierName, minOrder, fmt }: { ev: AgentEvent; suppli
     }
     case 'supplier_reply':
       return (
-        <div className="bubble bubble--supplier">
+        <div className={`bubble bubble--supplier${ev.data.live ? ' bubble--live' : ''}`}>
           <span className="bubble__who">
             <MessageSquareReply size={14} /> {name || t('agent.supplier')}
+            {ev.data.live ? <span className="bubble__intent"> · {t('agent.waiting.live')}</span> : null}
           </span>
           <p className="bubble__text">{ev.data.reply ? replyText(ev.data.reply, locale, t, fmt, minOrder(ev.supplier_id)) : ev.text}</p>
         </div>
@@ -171,6 +177,59 @@ function EventCard({ ev, supplierName, minOrder, fmt }: { ev: AgentEvent; suppli
     default:
       return null
   }
+}
+
+/** Агент написал живому поставщику и ждёт: кнопка «открыть WhatsApp» (если сервер не отправил сам), ссылка для ответа, таймер. */
+function WaitingCard({ ev, name, answered }: { ev: AgentEvent; name: string; answered: boolean }) {
+  const { t } = useI18n()
+  const toast = useToast()
+  const timeoutS = Number(ev.data.timeout_s ?? 180)
+  const [left, setLeft] = useState(timeoutS)
+  useEffect(() => {
+    if (answered) return
+    const started = Date.now()
+    const id = window.setInterval(() => setLeft(Math.max(0, Math.round(timeoutS - (Date.now() - started) / 1000))), 1000)
+    return () => window.clearInterval(id)
+  }, [answered, timeoutS])
+  const link = String(ev.data.link ?? '')
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link)
+      toast('success', t('agent.waiting.copied'))
+    } catch {
+      window.prompt(t('agent.waiting.copy'), link)
+    }
+  }
+  const mm = String(Math.floor(left / 60))
+  const ss = String(left % 60).padStart(2, '0')
+  return (
+    <div className={`wait-card${answered ? ' wait-card--done' : ''}`} data-testid="waiting-card">
+      <span className="wait-card__icon">
+        <MessageCircle size={18} />
+      </span>
+      <div className="stack stack--tight grow">
+        <span className="row row--between" style={{ gap: 8 }}>
+          <span className="rule-card__title">{t('agent.waiting.title', { supplier: name })}</span>
+          {!answered && <span className="wait-card__timer num-sm" aria-live="off">{`${mm}:${ss}`}</span>}
+        </span>
+        {!answered && <p className="small">{t('agent.waiting.hint', { phone: String(ev.data.phone ?? ''), min: Math.round(timeoutS / 60) })}</p>}
+        {ev.data.sent ? <span className="small c-ok">{t('agent.waiting.sent')}</span> : null}
+        {!answered && (
+          <div className="row row--wrap" style={{ gap: 6 }}>
+            <a className="btn btn--sm btn--primary" href={String(ev.data.wa_url ?? '#')} target="_blank" rel="noreferrer" data-testid="waiting-whatsapp">
+              <MessageCircle size={14} /> {t('agent.waiting.open')}
+            </a>
+            <Button size="sm" variant="secondary" icon={<Copy size={14} />} onClick={() => void copy()} data-testid="waiting-copy">
+              {t('agent.waiting.copy')}
+            </Button>
+            <a className="btn btn--sm btn--quiet" href={link} target="_blank" rel="noreferrer" data-testid="waiting-open">
+              {t('agent.waiting.openPage')}
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function Result({ run, fmt, orders, approving, onApprove, onSent }: { run: AgentRun; fmt: (kgs: number) => string; orders: Order[]; approving: boolean; onApprove: (d: SupplierDraft[]) => void; onSent: (o: Order) => void }) {
