@@ -212,6 +212,10 @@ def _note(lang: str, key: str, **params: Any) -> str:
             "en": "Nothing to order: everything is in stock as of the last walk. No money spent.",
             "ky": "Заказ кылуучу эч нерсе жок: акыркы кыдыруу боюнча баары бар. Акча сарпталган жок.",
         },
+        "finish_skipped": {
+            "ru": "Заказы не нужны: все позиции пропущены по вашим правилам ({blocks} проверок). Деньги не потрачены.",
+            "en": "No orders needed: every line was skipped under your rules ({blocks} checks). No money spent.",
+        },
         "fix_upsize": {
             "ru": "Скидка {pct:g}% не стоит лишнего товара. Возвращаю {name}: {qty} шт.",
             "en": "A {pct:g}% discount isn't worth the extra stock. {name} back to {qty}.",
@@ -323,6 +327,11 @@ class ScriptBrain:
         if not self._drafts:
             # Черновиков нет — один честный итог вместо прогона модели по пустому списку.
             self._queue.append(Action("finish", {"summary": _note(self.lang, "finish_none")}))
+            return
+        if self._confirmed == 0:
+            # Черновики были, но всё пропущено (упаковка не влезает в запас, поставщик без товара) — говорим об этом,
+            # а не «подтверждено 0 заказов на 0 сом».
+            self._queue.append(Action("finish", {"summary": _note(self.lang, "finish_skipped", blocks=self._blocks)}))
             return
         self._queue.append(
             Action(

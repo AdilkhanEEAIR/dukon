@@ -207,12 +207,14 @@ class Workbench:
                 continue
             built.append(template.model_copy(update={"qty": qty}))
         if not built:
+            # Все позиции округлились к нулю (упаковка больше разрешённого запаса) — это не ошибка прогона,
+            # а честный итог «у этого поставщика заказывать нечего». Иначе судья на своих фото видел красный «провал».
             return ToolResult(
                 "propose_order",
-                False,
-                {"status": "error", "error": "Пустой заказ", "unknown_skus": unknown},
-                "error",
-                "Предложение без позиций",
+                True,
+                {"status": "empty", "unknown_skus": unknown},
+                "skip",
+                f"{supplier.name}: заказывать нечего — позиции не прошли по правилам запаса",
                 supplier_id,
             )
         draft = finalize_draft(

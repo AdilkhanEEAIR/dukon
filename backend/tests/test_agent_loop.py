@@ -104,7 +104,8 @@ def test_workbench_guards_order_of_operations(drafts):
     empty = bench.call(
         "propose_order", {"supplier_id": "aksuu", "lines": [{"sku": "x", "qty": 5}], "delivery_day": 1, "note": ""}
     )
-    assert empty.kind == "error" and empty.payload["unknown_skus"] == ["x"]
+    # Пустое предложение — пропуск поставщика, а не ошибка прогона; неизвестные sku всё равно возвращаются модели.
+    assert empty.kind == "skip" and empty.payload["status"] == "empty" and empty.payload["unknown_skus"] == ["x"]
 
 
 def test_workbench_rounds_to_pack_and_confirm_drops_rejected(drafts):
@@ -243,3 +244,25 @@ def test_script_brain_with_nothing_to_order_finishes_in_one_honest_step():
     events, result = loop.run(ScriptBrain(), [], Rules(), SUPPLIERS, lang="ru")
     assert [e.kind for e in events] == ["start", "final"]
     assert "нечего" in events[-1].text and result.orders == [] and result.total == 0
+
+
+def test_lines_rounded_to_zero_are_a_skip_not_a_failure():
+    """Упаковка 24 при запасе на 14 дней в 18 штук: позиция округляется к нулю. Прогон должен кончиться
+    честным «заказы не нужны», а не красной ошибкой — судья на своих фото видел именно её."""
+    from app.domain.schemas import DraftLine, SupplierDraft
+
+    draft = SupplierDraft(
+        supplier_id="baytik",
+        supplier_name="Байтик",
+        lines=[
+            DraftLine(
+                sku="snickers", name="Snickers", qty=0, unit_price=60, suggested=9, on_hand=0, velocity_per_day=1.3
+            )
+        ],
+        delivery_day=0,
+    )
+    events, result = loop.run(ScriptBrain(), [draft], Rules(), SUPPLIERS, lang="ru")
+    kinds = [e.kind for e in events]
+    assert "error" not in kinds
+    assert kinds[-1] == "final" and "не нужны" in events[-1].text
+    assert result.orders == [] and result.skipped
