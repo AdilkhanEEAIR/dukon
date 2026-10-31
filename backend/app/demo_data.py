@@ -55,7 +55,7 @@ def demo_shops(now: datetime | None = None) -> list[Shop]:
         Shop(
             id="demo-chuy",
             name="Chuy 120",
-            address="Chuy Ave 120, Bishkek",
+            address="120 Chuy Avenue, Bishkek, Kyrgyzstan",
             created_at=base,
             demo=True,
             lat=42.8766,
@@ -64,7 +64,7 @@ def demo_shops(now: datetime | None = None) -> list[Shop]:
         Shop(
             id="demo-manas",
             name="Manas 47",
-            address="Manas Ave 47, Bishkek",
+            address="47 Manas Avenue, Bishkek, Kyrgyzstan",
             created_at=base + timedelta(minutes=1),
             demo=True,
             lat=42.8665,
@@ -73,7 +73,7 @@ def demo_shops(now: datetime | None = None) -> list[Shop]:
         Shop(
             id="demo-osh",
             name="Osh Bazaar",
-            address="Beyshenalieva St 2, Bishkek",
+            address="2 Beyshenalieva Street, Bishkek, Kyrgyzstan",
             created_at=base + timedelta(minutes=2),
             demo=True,
             lat=42.8748,

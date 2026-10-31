@@ -73,7 +73,7 @@ export function replyText(reply: SupplierReplyPayload, locale: Locale, t: T, fmt
   return parts.join(' ')
 }
 
-/** Короткая подпись намерения над репликой агента: «Предлагает Ак-Суу», «Спрашивает…», «Подтверждает…». */
+/** Короткая подпись намерения над репликой агента: «Предлагает Blue River», «Спрашивает…», «Подтверждает…». */
 export function intentLabel(ev: AgentEvent, t: T, supplierName: string): string | null {
   switch (ev.data.tool) {
     case 'propose_order':

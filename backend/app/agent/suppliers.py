@@ -1,8 +1,10 @@
-"""Справочник поставщиков для магазина у дома в Бишкеке.
+"""Справочник поставщиков-образцов для магазина у дома.
 
-Названия и телефоны — образцы (не настоящие компании): хозяин заменяет их своими в настройках.
-Условия подобраны по тому, как работают местные дистрибьюторы: минимальный заказ, дни доставки,
-скидка от объёма. Чего нет на складе на этой неделе — тоже здесь, чтобы симулятор отвечал как живой.
+Названия, имена и телефоны — выдуманные (не настоящие компании): они нужны, чтобы демо было понятно
+любому судье. Хозяин добавляет своих поставщиков с настоящими WhatsApp-номерами в настройках — те идут
+первыми, а образцы остаются запасными на категории, которые никто из своих не возит.
+Условия подобраны по тому, как работают дистрибьюторы: минимальный заказ, дни доставки, скидка от объёма.
+Чего нет на складе на этой неделе — тоже здесь, чтобы симулятор отвечал как живой.
 """
 
 from __future__ import annotations
@@ -16,10 +18,11 @@ MON, TUE, WED, THU, FRI, SAT, SUN = range(7)
 SUPPLIERS: list[Supplier] = [
     Supplier(
         id="aksuu",
-        name="Ак-Суу · напитки",
-        name_en="Ak-Suu · drinks",
+        name="Blue River Drinks",
+        name_en="Blue River Drinks",
         categories=[Category.DRINKS],
-        contact="Бакыт",
+        contact="John",
+        contact_en="John",
         phone="+996555000011",
         delivery_days=[TUE, THU, SAT],
         min_order_kgs=2000,
@@ -29,10 +32,11 @@ SUPPLIERS: list[Supplier] = [
     ),
     Supplier(
         id="alatoo",
-        name="Ала-Тоо · молочный дом",
-        name_en="Ala-Too · dairy house",
+        name="Mountain Dairy",
+        name_en="Mountain Dairy",
         categories=[Category.DAIRY],
-        contact="Гульмира",
+        contact="Anna",
+        contact_en="Anna",
         phone="+996555000022",
         delivery_days=[TUE, FRI],
         min_order_kgs=1500,
@@ -41,10 +45,11 @@ SUPPLIERS: list[Supplier] = [
     ),
     Supplier(
         id="baytik",
-        name="Байтик · снеки и кондитерка",
-        name_en="Baytik · snacks & sweets",
+        name="Jerry's Snacks & Sweets",
+        name_en="Jerry's Snacks & Sweets",
         categories=[Category.SNACKS],
-        contact="Азамат",
+        contact="Jerry",
+        contact_en="Jerry",
         phone="+996555000033",
         delivery_days=[MON, WED, FRI],
         min_order_kgs=500,
@@ -53,10 +58,11 @@ SUPPLIERS: list[Supplier] = [
     ),
     Supplier(
         id="nan",
-        name="Нан · пекарня",
-        name_en="Nan · bakery",
+        name="Daily Bread Bakery",
+        name_en="Daily Bread Bakery",
         categories=[Category.BREAD],
-        contact="Айгуль",
+        contact="Mike",
+        contact_en="Mike",
         phone="+996555000044",
         delivery_days=[MON, TUE, WED, THU, FRI, SAT, SUN],
         min_order_kgs=0,
@@ -64,10 +70,11 @@ SUPPLIERS: list[Supplier] = [
     ),
     Supplier(
         id="dordoi",
-        name="Дордой · бакалея",
-        name_en="Dordoi · grocery",
+        name="Grand Bazaar Grocery",
+        name_en="Grand Bazaar Grocery",
         categories=[Category.GROCERY],
-        contact="Нурлан",
+        contact="Sam",
+        contact_en="Sam",
         phone="+996555000055",
         delivery_days=[WED, SAT],
         min_order_kgs=1000,
@@ -75,6 +82,12 @@ SUPPLIERS: list[Supplier] = [
         discounts=[Discount(min_units=48, pct=4)],
     ),
 ]
+
+
+def suppliers_for(custom: list[Supplier]) -> list[Supplier]:
+    """Поставщики магазина: свои (живые) первыми, затем образцы, не повторяя id."""
+    seen = {s.id for s in custom}
+    return list(custom) + [s for s in SUPPLIERS if s.id not in seen]
 
 
 def by_id(supplier_id: str, suppliers: list[Supplier] | None = None) -> Supplier | None:
