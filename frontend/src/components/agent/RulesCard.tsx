@@ -8,7 +8,7 @@ import type { Rules, Supplier } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { supplierTitle, weekdayName } from '../../lib/agentText'
 import { Button } from '../Button'
-import { Field, Input } from '../Fields'
+import { Field, NumberInput } from '../Fields'
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6]
 
@@ -17,10 +17,7 @@ export function RulesCard({ rules, suppliers, onSave, saving }: { rules: Rules; 
   const [draft, setDraft] = useState<Rules>(rules)
   useEffect(() => setDraft(rules), [rules])
   const dirty = JSON.stringify(draft) !== JSON.stringify(rules)
-  const num = (key: keyof Rules, min: number, max: number) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = Number(e.target.value)
-    if (Number.isFinite(v)) setDraft((d) => ({ ...d, [key]: Math.min(max, Math.max(min, v)) }))
-  }
+  const num = (key: keyof Rules) => (v: number) => setDraft((d) => ({ ...d, [key]: v }))
   const toggleDay = (day: number) => setDraft((d) => ({ ...d, no_dairy_on: d.no_dairy_on.includes(day) ? d.no_dairy_on.filter((x) => x !== day) : [...d.no_dairy_on, day].sort() }))
   const toggleSupplier = (id: string) => setDraft((d) => ({ ...d, banned_suppliers: d.banned_suppliers.includes(id) ? d.banned_suppliers.filter((x) => x !== id) : [...d.banned_suppliers, id] }))
 
@@ -33,16 +30,16 @@ export function RulesCard({ rules, suppliers, onSave, saving }: { rules: Rules; 
       <p className="small">{t('agent.rulesHint')}</p>
       <div className="rules-grid">
         <Field label={t('agent.fields.total')} htmlFor="rule-total">
-          <Input id="rule-total" type="number" inputMode="numeric" min={0} step={500} value={draft.max_order_total_kgs} onChange={num('max_order_total_kgs', 0, 10_000_000)} />
+          <NumberInput id="rule-total" min={0} max={10_000_000} value={draft.max_order_total_kgs} onChange={num('max_order_total_kgs')} data-testid="rule-total" />
         </Field>
         <Field label={t('agent.fields.days')} htmlFor="rule-days">
-          <Input id="rule-days" type="number" inputMode="numeric" min={1} max={90} value={draft.max_stock_days} onChange={num('max_stock_days', 1, 90)} />
+          <NumberInput id="rule-days" min={1} max={90} value={draft.max_stock_days} onChange={num('max_stock_days')} data-testid="rule-days" />
         </Field>
         <Field label={t('agent.fields.line')} htmlFor="rule-line">
-          <Input id="rule-line" type="number" inputMode="numeric" min={1} value={draft.max_line_units} onChange={num('max_line_units', 1, 100_000)} />
+          <NumberInput id="rule-line" min={1} max={100_000} value={draft.max_line_units} onChange={num('max_line_units')} data-testid="rule-line" />
         </Field>
         <Field label={t('agent.fields.discount')} htmlFor="rule-discount">
-          <Input id="rule-discount" type="number" inputMode="decimal" min={0} max={100} step={1} value={draft.min_discount_for_upsize_pct} onChange={num('min_discount_for_upsize_pct', 0, 100)} />
+          <NumberInput id="rule-discount" min={0} max={100} decimals value={draft.min_discount_for_upsize_pct} onChange={num('min_discount_for_upsize_pct')} data-testid="rule-discount" />
         </Field>
       </div>
       <div className="field">
