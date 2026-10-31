@@ -726,7 +726,7 @@ describe('Уведомления, система, агент, оболочка',
     renderAt('/app/agent')
     await waitFor(() => expect(screen.getByTestId('msg-agent')).toHaveTextContent(/765\sсом в день/))
     expect(await screen.findByTestId('rules-card')).toHaveTextContent('Ваши правила')
-    expect(screen.getByTestId('suppliers-card')).toHaveTextContent('Ак-Суу')
+    expect(screen.getByTestId('suppliers-card')).toHaveTextContent('Blue River Drinks')
     expect(screen.getByTestId('run-agent')).toBeEnabled()
   })
 
@@ -753,5 +753,76 @@ describe('Уведомления, система, агент, оболочка',
     expect(screen.getAllByRole('link', { name: /Филиалы/ }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('link', { name: /Агент/ }).length).toBeGreaterThan(0)
     expect(document.querySelector('.pill__dot, .notif__unread, .step__dot')).toBeNull()
+  })
+})
+
+describe('Страница поставщика /s/:token', () => {
+  beforeEach(() => seedSettings({ motion: 'calm' }))
+
+  const thread = {
+    token: 'tok-abcdefghijklmnop',
+    run_id: 'run-1',
+    walk_id: 'demo-tue',
+    shop_id: 'demo-chuy',
+    supplier_id: 'sup-jerry',
+    supplier_name: "Jerry's Snacks & Sweets",
+    supplier_phone: '+996700123456',
+    shop_name: 'Chuy 120',
+    channel: 'link',
+    status: 'waiting',
+    created_at: '2026-10-28T02:21:00Z',
+    expires_at: '2026-10-31T02:21:00Z',
+    draft: drafts.drafts[0],
+    message: 'Hi Jerry! Order…',
+    whatsapp_url: 'https://wa.me/996700123456?text=Hi',
+    messages: [{ sender: 'agent', text: 'Hi Jerry! Order…', at: '2026-10-28T02:21:00Z' }],
+    reply: null,
+    raw_reply: '',
+    confirmation: '',
+  }
+
+  it('без оболочки приложения: заказ, кнопки; «всё есть» уходит на сервер и показывает благодарность', async () => {
+    const fn = mockFetch({
+      ...happyRoutes,
+      '/s/tok-abcdefghijklmnop/reply': (init) => {
+        const body = JSON.parse(String(init?.body)) as { choice: string }
+        return jsonResponse({ ...thread, status: 'answered', messages: [...thread.messages, { sender: 'supplier', text: body.choice, at: '2026-10-28T02:22:00Z' }] })
+      },
+      '/s/tok-abcdefghijklmnop': () => jsonResponse(thread),
+    })
+    renderAt('/s/tok-abcdefghijklmnop')
+    expect(await screen.findByTestId('sreply-title')).toHaveTextContent('Заказ от Chuy 120')
+    // Страница поставщика живёт без навигации приложения.
+    expect(screen.queryByRole('link', { name: /Агент/ })).toBeNull()
+    expect(screen.getByTestId('sreply-lines')).toHaveTextContent('Coca-Cola 1 л')
+    expect(screen.getByTestId('sreply-send')).toBeDisabled()
+    await userEvent.click(screen.getByTestId('sreply-confirm'))
+    await userEvent.click(screen.getByTestId('sreply-send'))
+    expect(await screen.findByTestId('sreply-done')).toHaveTextContent('Спасибо! Агент получил ваш ответ.')
+    const post = (fn.mock.calls as [string, RequestInit][]).find(([u, i]) => u.includes('/reply') && i?.method === 'POST')!
+    const body = JSON.parse(String(post[1].body)) as { choice: string; rejected_skus: string[]; text: string }
+    expect(body).toMatchObject({ choice: 'confirm', rejected_skus: [], text: '' })
+    expect(screen.getByTestId('sreply-msgs')).toHaveTextContent('confirm')
+  })
+
+  it('«части нет» показывает галочки по позициям и отправляет отмеченные sku; просроченная ссылка — честное сообщение', async () => {
+    const fn = mockFetch({
+      ...happyRoutes,
+      '/s/tok-abcdefghijklmnop/reply': () => jsonResponse({ ...thread, status: 'answered' }),
+      '/s/tok-abcdefghijklmnop': () => jsonResponse(thread),
+      '/s/tok-expiredexpiredexp': () => jsonResponse({ ...thread, token: 'tok-expiredexpiredexp', status: 'expired' }),
+    })
+    const view = renderAt('/s/tok-abcdefghijklmnop')
+    await screen.findByTestId('sreply-title')
+    await userEvent.click(screen.getByTestId('sreply-out'))
+    await userEvent.click(screen.getByTestId('sreply-out-coca cola 1 л'))
+    await userEvent.type(screen.getByTestId('sreply-text'), 'колы нет до пятницы')
+    await userEvent.click(screen.getByTestId('sreply-send'))
+    await screen.findByTestId('sreply-done')
+    const post = (fn.mock.calls as [string, RequestInit][]).find(([u, i]) => u.includes('/reply') && i?.method === 'POST')!
+    expect(JSON.parse(String(post[1].body))).toMatchObject({ choice: 'out', rejected_skus: ['coca cola 1 л'], text: 'колы нет до пятницы' })
+    view.unmount()
+    renderAt('/s/tok-expiredexpiredexp')
+    expect(await screen.findByTestId('sreply-error')).toHaveTextContent('Ссылка устарела')
   })
 })

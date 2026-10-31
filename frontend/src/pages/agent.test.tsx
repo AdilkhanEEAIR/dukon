@@ -10,7 +10,7 @@ import { encodeWav, resample } from '../lib/audio'
 import { kyrgyzForRussianVoice, pickVoice } from '../lib/speech'
 import { replyText, violationText, weekdayName } from '../lib/agentText'
 import { translate } from '../i18n'
-import { agentRun, approvedOrders, happyRoutes, jsonResponse, mockFetch, rules, seedSettings, sseBody, type Routes } from '../test/fixtures'
+import { agentRun, approvedOrders, happyRoutes, jsonResponse, mockFetch, rules, seedSettings, sseBody, suppliers, type Routes } from '../test/fixtures'
 
 function renderAt(path: string) {
   return render(
@@ -344,5 +344,88 @@ describe('Заказы с сервера', () => {
     const approved = await screen.findByTestId('orders-approved')
     expect(within(approved).getAllByTestId('order-card')).toHaveLength(2)
     expect(approved).toHaveTextContent('Утверждённые заказы')
+  })
+})
+
+describe('Живой поставщик в WhatsApp', () => {
+  beforeEach(() => seedSettings({ motion: 'calm' }))
+
+  const jerry = {
+    id: 'sup-jerry',
+    name: "Jerry's Snacks & Sweets",
+    categories: ['snacks'],
+    contact: 'Jerry',
+    phone: '+996700123456',
+    channel: 'link',
+    custom: true,
+    delivery_days: [0, 2, 4],
+    min_order_kgs: 500,
+    pack_size: 12,
+    discounts: [],
+    out_of_stock: [],
+  }
+  const waitingEv = {
+    step: 3,
+    kind: 'waiting',
+    at: '2026-10-28T02:21:00Z',
+    text: 'Hi Jerry! Order…',
+    supplier_id: 'aksuu',
+    data: { token: 'tok-abc', link: 'http://localhost:5173/s/tok-abc', wa_url: 'https://wa.me/996555000011?text=Hi', sent: false, phone: '+996555000011', timeout_s: 180 },
+  }
+
+  it('карточка ожидания: таймер, кнопка WhatsApp, копия ссылки; живой ответ помечен и сворачивает ожидание', async () => {
+    const events = [...agentRun.events]
+    // Вставляем «ждём» перед ответом поставщика и помечаем ответ как живой.
+    const replyIdx = events.findIndex((e) => e.kind === 'supplier_reply')
+    events.splice(replyIdx, 0, waitingEv as never)
+    events[replyIdx + 1] = { ...events[replyIdx + 1], data: { ...events[replyIdx + 1].data, live: true, token: 'tok-abc' } }
+    const liveRun = { ...agentRun, events }
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    mockFetch({ ...happyRoutes, '/agent/runs/run-1/events': () => new Response(sseBody(liveRun), { status: 200, headers: { 'content-type': 'text/event-stream' } }), '/agent/runs/run-1': () => jsonResponse(liveRun) })
+    renderAt('/app/agent')
+    await userEvent.click(await screen.findByTestId('run-agent'))
+    const card = await screen.findByTestId('waiting-card', {}, { timeout: 8000 })
+    expect(card).toHaveTextContent('Ждём ответ Blue River Drinks в WhatsApp')
+    expect(within(card).getByTestId('waiting-whatsapp')).toHaveAttribute('href', 'https://wa.me/996555000011?text=Hi')
+    await userEvent.click(within(card).getByTestId('waiting-copy'))
+    expect(writeText).toHaveBeenCalledWith('http://localhost:5173/s/tok-abc')
+    // Пришёл живой ответ — карточка ожидания сворачивается (кнопок больше нет), реплика помечена «Ответил в WhatsApp».
+    const reply = (await screen.findAllByTestId('event-supplier_reply', {}, { timeout: 8000 }))[0]
+    expect(reply).toHaveTextContent('Ответил в WhatsApp')
+    await waitFor(() => expect(within(screen.getByTestId('waiting-card')).queryByTestId('waiting-whatsapp')).toBeNull())
+  })
+
+  it('свой поставщик: форма отправляет номер в международном формате, список помечает его «WhatsApp», удаление уходит на сервер', async () => {
+    const fn = mockFetch({
+      ...happyRoutes,
+      '/suppliers': (init) => {
+        if (init?.method === 'POST') return jsonResponse({ ...jerry, ...(JSON.parse(String(init.body)) as object), id: 'sup-jerry' }, 201)
+        return jsonResponse(suppliers)
+      },
+      '/suppliers/sup-jerry': (init) => (init?.method === 'DELETE' ? jsonResponse({ deleted: 1 }) : jsonResponse(jerry)),
+    })
+    renderAt('/app/agent')
+    const cardEl = await screen.findByTestId('suppliers-card')
+    await within(cardEl).findByTestId('supplier-aksuu')
+    expect(cardEl).toHaveTextContent('образец')
+    await userEvent.click(within(cardEl).getByTestId('supplier-add'))
+    await userEvent.type(screen.getByTestId('sup-name'), "Jerry's Snacks & Sweets")
+    await userEvent.type(screen.getByTestId('sup-phone'), '+996 700 123 456')
+    await userEvent.click(screen.getByTestId('sup-cat-drinks'))
+    await userEvent.click(screen.getByTestId('sup-save'))
+    expect(await screen.findByText('Поставщик сохранён')).toBeInTheDocument()
+    const post = (fn.mock.calls as [string, RequestInit][]).find(([u, i]) => u.includes('/suppliers') && i?.method === 'POST')!
+    const body = JSON.parse(String(post[1].body)) as { phone: string; categories: string[]; channel: string }
+    expect(body.phone).toBe('+996700123456')
+    expect(body.categories).toEqual(['snacks', 'drinks'])
+    expect(body.channel).toBe('link')
+    expect((post[1].headers as Record<string, string>)['x-device-id']).toBeTruthy()
+    const row = await screen.findByTestId('supplier-sup-jerry')
+    expect(row).toHaveTextContent('WhatsApp')
+    expect(row).toHaveTextContent('+996700123456')
+    await userEvent.click(within(row).getByTestId('supplier-remove-sup-jerry'))
+    expect(await screen.findByText('Поставщик удалён')).toBeInTheDocument()
+    expect(screen.queryByTestId('supplier-sup-jerry')).toBeNull()
   })
 })
