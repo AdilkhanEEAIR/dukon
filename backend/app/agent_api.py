@@ -1,13 +1,20 @@
 """Обращения агента, заказов, разговора и голоса. Подключаются к приложению из api.py.
 
-  GET  /suppliers                       — справочник поставщиков
+  GET  /suppliers?shop_id=              — поставщики магазина: свои (живые) и образцы
+  POST /suppliers?shop_id=              — добавить своего поставщика с WhatsApp-номером
+  PUT  /suppliers/{id}                  — изменить своего поставщика
+  DELETE /suppliers/{id}                — удалить своего поставщика
+  GET  /s/{token}                       — страница поставщика: заказ и кнопки ответа (без входа)
+  POST /s/{token}/reply                 — ответ поставщика кнопкой или текстом
+  GET/POST /whatsapp/webhook            — вебхук WhatsApp Cloud API: ответы поставщиков из чата
+  GET  /agent/runs/{id}/threads         — разговоры с поставщиками в этом прогоне
   GET  /rules?shop_id=                  — правила хозяина для магазина (по умолчанию — стандартные)
   PUT  /rules?shop_id=                  — сохранить правила
   GET  /orders/drafts?walk_id=          — черновики заказов по поставщикам из дифа обхода
   POST /agent/run?walk_id=&lang=        — запустить агента (в фоне), вернуть прогон с id
   GET  /agent/runs/latest?walk_id=      — последний прогон по обходу
   GET  /agent/runs/{id}                 — прогон целиком
-  GET  /agent/runs/{id}/events          — поток событий (SSE), пока прогон не закончится
+  GET  /agent/runs/{id}/events?after=   — поток событий (SSE), пока прогон не закончится; after — продолжить
   POST /agent/chat                      — вопрос агенту словами; может изменить правило или запустить заказ
   POST /orders/approve                  — утвердить заказы: сообщение поставщику и ссылка в WhatsApp
   POST /orders/{id}/sent                — отметить, что заказ отправлен
@@ -30,23 +37,41 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .agent import loop
 from .agent.brain import ScriptBrain, SparkBrain
+from .agent.channel import LiveChannel, SimChannel
 from .agent.chat import ChatContext, ScriptChat, SparkChat, apply_rules_patch, detect_lang
-from .agent.suppliers import SUPPLIERS, by_id
+from .agent.replies import SparkReplyParser, parse_reply
+from .agent.suppliers import by_id, suppliers_for
 from .agent.verifier import verify_draft
 from .config import Settings
 from .demo_data import DEMO_OWNER
+from .domain.catalog import PACK_BY_CATEGORY
 from .domain.diff import diff_walks
 from .domain.orders import build_drafts, finalize_draft, order_message, whatsapp_url
-from .domain.schemas import AgentRun, ChatMessage, DraftsResponse, Order, Rules, Supplier, SupplierDraft, Walk
+from .domain.schemas import (
+    AgentRun,
+    ChatMessage,
+    DraftsResponse,
+    Order,
+    Rules,
+    Supplier,
+    SupplierDraft,
+    SupplierIn,
+    SupplierReplyIn,
+    SupplierThread,
+    ThreadMessage,
+    Walk,
+    utcnow,
+)
 from .models.meta import ProviderError
 from .models.voice import transcribe, wav_info
-from .security import RateLimiter, guard_live, today_key
+from .security import RateLimiter, client_ip, guard_live, today_key
 from .storage import Storage
+from .whatsapp import WhatsAppClient, parse_incoming, verify_signature
 
 log = logging.getLogger("dukon.agent_api")
 
@@ -112,11 +137,89 @@ def register(
     def lang_of(value: str | None) -> str:
         return value if value in LANGS else "en"
 
-    # ---- справочники и правила
-    @app.get("/suppliers", response_model=list[Supplier])
-    def suppliers():
-        return SUPPLIERS
+    def owner_of(x_device_id: str | None) -> str | None:
+        """Код устройства, если он настоящий; иначе None (демо без кода — ничей)."""
+        try:
+            return device_id(x_device_id)
+        except HTTPException:
+            return None
 
+    def suppliers_for_shop(shop_id: str | None, x_device_id: str | None) -> list[Supplier]:
+        """Свои поставщики магазина (на этом устройстве) первыми, затем образцы."""
+        owner = owner_of(x_device_id)
+        custom = storage.list_suppliers(owner, shop_id) if owner else []
+        return suppliers_for(custom)
+
+    def shop_name_of(shop_id: str | None, x_device_id: str | None) -> str:
+        if not shop_id:
+            return "Dukon"
+        shop = storage.get_shop(shop_id, DEMO_OWNER)
+        if shop is None and x_device_id:
+            shop = storage.get_shop(shop_id, x_device_id)
+        return shop.name if shop else "Dukon"
+
+    whatsapp = WhatsAppClient(settings.whatsapp_token, settings.whatsapp_phone_id, settings.whatsapp_api_base)
+    # Страница поставщика открыта без входа — лимит на адрес, чтобы по ссылке нельзя было долбить сервер.
+    reply_limiter = RateLimiter(60)
+
+    def reply_parser():
+        client = spark_client()
+        return SparkReplyParser(client, settings.agent_model) if client is not None and settings.live_enabled else None
+
+    # ---- поставщики
+    @app.get("/suppliers", response_model=list[Supplier])
+    def suppliers(
+        shop_id: str | None = Query(default=None, max_length=64), x_device_id: str | None = Header(default=None)
+    ):
+        check_shop_access(shop_id, x_device_id)
+        return suppliers_for_shop(shop_id, x_device_id)
+
+    def _supplier_from(body: SupplierIn, supplier_id: str, shop_id: str | None) -> Supplier:
+        return Supplier(
+            id=supplier_id,
+            name=body.name,
+            name_en=body.name,
+            categories=body.categories,
+            contact=body.contact,
+            contact_en=body.contact,
+            phone=body.phone,
+            channel=body.channel,
+            custom=True,
+            shop_id=shop_id,
+            delivery_days=body.delivery_days,
+            min_order_kgs=body.min_order_kgs,
+            pack_size=body.pack_size or PACK_BY_CATEGORY.get(body.categories[0], 1),
+        )
+
+    @app.post("/suppliers", response_model=Supplier, status_code=201)
+    def add_supplier(
+        body: SupplierIn,
+        shop_id: str | None = Query(default=None, max_length=64),
+        x_device_id: str | None = Header(default=None),
+    ):
+        owner = device_id(x_device_id)
+        check_shop_access(shop_id, x_device_id)
+        if len(storage.list_suppliers(owner, shop_id)) >= 20:
+            raise HTTPException(400, detail={"code": "too_many", "message": "Не больше 20 своих поставщиков"})
+        supplier = _supplier_from(body, "sup-" + uuid.uuid4().hex[:10], shop_id)
+        return storage.save_supplier(owner, supplier)
+
+    @app.put("/suppliers/{supplier_id}", response_model=Supplier)
+    def update_supplier(supplier_id: str, body: SupplierIn, x_device_id: str | None = Header(default=None)):
+        owner = device_id(x_device_id)
+        current = storage.get_supplier(supplier_id, owner)
+        if current is None:
+            raise HTTPException(404, detail={"code": "not_found", "message": "Поставщик не найден"})
+        return storage.save_supplier(owner, _supplier_from(body, supplier_id, current.shop_id))
+
+    @app.delete("/suppliers/{supplier_id}")
+    def delete_supplier(supplier_id: str, x_device_id: str | None = Header(default=None)):
+        owner = device_id(x_device_id)
+        if not storage.delete_supplier(supplier_id, owner):
+            raise HTTPException(404, detail={"code": "not_found", "message": "Поставщик не найден"})
+        return {"deleted": 1}
+
+    # ---- правила
     @app.get("/rules", response_model=Rules)
     def get_rules(
         shop_id: str | None = Query(default=None, max_length=64), x_device_id: str | None = Header(default=None)
@@ -139,7 +242,7 @@ def register(
         walk = walk_or_404(walk_id, x_device_id)
         rules = storage.get_rules(walk.shop_id)
         diff = diff_walks(storage.previous_walk(walk), walk)
-        items = build_drafts(diff, rules, SUPPLIERS)
+        items = build_drafts(diff, rules, suppliers_for_shop(walk.shop_id, x_device_id))
         return DraftsResponse(
             walk_id=walk.id,
             shop_id=walk.shop_id,
@@ -160,7 +263,8 @@ def register(
         walk = walk_or_404(walk_id, x_device_id)
         rules = storage.get_rules(walk.shop_id)
         diff = diff_walks(storage.previous_walk(walk), walk)
-        items = build_drafts(diff, rules, SUPPLIERS)
+        pool = suppliers_for_shop(walk.shop_id, x_device_id)
+        items = build_drafts(diff, rules, pool)
         # Заказывать нечего — модель не зовём: она придумывает «пробные заказы» по пустому списку
         # и жжёт кредиты. Сценарий сам скажет хозяину, что всё в наличии.
         use_spark = bool(items) and (brain == "spark" or (brain == "auto" and live_brain_allowed(walk)))
@@ -184,6 +288,25 @@ def register(
         )
         storage.save_run(run)
         language = lang_of(lang)
+        owner = owner_of(x_device_id)
+        # Живой канал нужен только когда у магазина есть свои поставщики с номером: образцам отвечает симулятор.
+        live_suppliers = any(s.custom and s.channel != "simulated" and s.phone for s in pool)
+        if live_suppliers and owner:
+            channel = LiveChannel(
+                storage,
+                run_id=run.id,
+                walk_id=walk.id,
+                shop_id=walk.shop_id,
+                owner=owner,
+                shop_name=shop_name_of(walk.shop_id, x_device_id),
+                lang=language,
+                public_base_url=settings.public_base_url,
+                timeout_s=settings.supplier_reply_timeout_s,
+                fallback=settings.supplier_fallback,
+                whatsapp=whatsapp,
+            )
+        else:
+            channel = SimChannel()
 
         def work() -> None:
             try:
@@ -191,10 +314,11 @@ def register(
                     engine,
                     items,
                     rules,
-                    SUPPLIERS,
+                    pool,
                     lang=language,
                     max_steps=settings.agent_max_steps,
                     on_event=lambda ev: storage.append_run_event(run.id, ev),
+                    channel=channel,
                 )
                 current = storage.get_run(run.id) or run
                 failed = any(e.kind == "error" for e in events) and not result.orders
@@ -233,12 +357,16 @@ def register(
 
     @app.get("/agent/runs/{run_id}/events")
     def run_events(
-        run_id: str, timeout: float = Query(default=120, ge=1, le=600), x_device_id: str | None = Header(default=None)
+        run_id: str,
+        timeout: float = Query(default=120, ge=1, le=600),
+        after: int = Query(default=0, ge=0),
+        x_device_id: str | None = Header(default=None),
     ):
+        """after — сколько событий клиент уже получил: после обрыва поток продолжается, а не начинается заново."""
         run_or_404(run_id, x_device_id)
 
         def stream() -> Iterator[bytes]:
-            sent = 0
+            sent = after
             started = time.monotonic()
             while True:
                 run = storage.get_run(run_id)
@@ -252,13 +380,99 @@ def register(
                     yield f"event: done\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
                     break
                 if time.monotonic() - started > timeout:
-                    yield b"event: timeout\ndata: {}\n\n"
+                    yield f"event: timeout\ndata: {json.dumps({'sent': sent})}\n\n".encode()
                     break
                 time.sleep(0.2)
 
         return StreamingResponse(
             stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
         )
+
+    @app.get("/agent/runs/{run_id}/threads", response_model=list[SupplierThread])
+    def run_threads(run_id: str, x_device_id: str | None = Header(default=None)):
+        """Разговоры — только свои: прогон на демо-обходе виден всем, а ссылки поставщикам — нет."""
+        run_or_404(run_id, x_device_id)
+        owner = owner_of(x_device_id)
+        return [t for t in storage.threads_for_run(run_id) if owner and t.owner == owner]
+
+    # ---- страница поставщика (без входа: ссылку знает только тот, кому её прислали)
+    def thread_or_404(token: str) -> SupplierThread:
+        if not (16 <= len(token) <= 64):
+            raise HTTPException(404, detail={"code": "not_found", "message": "Ссылка не найдена"})
+        thread = storage.get_thread(token)
+        if thread is None:
+            raise HTTPException(404, detail={"code": "not_found", "message": "Ссылка не найдена"})
+        if thread.status == "waiting" and thread.expires_at < utcnow():
+            thread.status = "expired"
+            storage.save_thread(thread)
+        return thread
+
+    def apply_supplier_reply(thread: SupplierThread, body: SupplierReplyIn, via: str) -> SupplierThread:
+        """Ответ поставщика → SupplierReply в разговоре; агент, который ждёт, подхватит его на следующем опросе."""
+        owner = thread.owner
+        custom = storage.list_suppliers(owner, thread.shop_id) if owner else []
+        supplier = by_id(thread.supplier_id, suppliers_for(custom))
+        if supplier is None:
+            supplier = Supplier(id=thread.supplier_id, name=thread.supplier_name, categories=[])
+        reply = parse_reply(body, thread.draft, supplier, reply_parser())
+        shown = body.text.strip() or reply.message
+        thread.messages.append(ThreadMessage(sender="supplier", text=shown, at=utcnow()))
+        thread.raw_reply = body.text
+        if thread.status == "waiting":
+            thread.reply = reply
+            thread.status = "answered"
+        # Уже доиграно симулятором или закрыто — поздний ответ просто ложится в ленту разговора.
+        log.info("supplier reply via %s for run %s: %s", via, thread.run_id, shown[:80])
+        return storage.save_thread(thread)
+
+    @app.get("/s/{token}", response_model=SupplierThread)
+    def supplier_thread(token: str, request: Request):
+        if not reply_limiter.check(client_ip(request, settings.trust_forwarded_for)):
+            raise HTTPException(429, detail={"code": "rate_limited", "message": "Слишком много запросов"})
+        return thread_or_404(token)
+
+    @app.post("/s/{token}/reply", response_model=SupplierThread)
+    def supplier_reply(token: str, body: SupplierReplyIn, request: Request):
+        if not reply_limiter.check(client_ip(request, settings.trust_forwarded_for)):
+            raise HTTPException(429, detail={"code": "rate_limited", "message": "Слишком много запросов"})
+        thread = thread_or_404(token)
+        if thread.status == "expired":
+            raise HTTPException(410, detail={"code": "expired", "message": "Ссылка устарела"})
+        if not body.text.strip() and body.choice is None:
+            raise HTTPException(400, detail={"code": "validation", "message": "Нажмите кнопку или напишите ответ"})
+        return apply_supplier_reply(thread, body, "link")
+
+    # ---- вебхук WhatsApp Cloud API
+    @app.get("/whatsapp/webhook")
+    def whatsapp_verify(request: Request):
+        params = request.query_params
+        if (
+            settings.whatsapp_verify_token
+            and params.get("hub.mode") == "subscribe"
+            and params.get("hub.verify_token") == settings.whatsapp_verify_token
+        ):
+            return PlainTextResponse(params.get("hub.challenge", ""))
+        raise HTTPException(403, detail={"code": "forbidden", "message": "Неверный verify token"})
+
+    @app.post("/whatsapp/webhook")
+    async def whatsapp_incoming(request: Request):
+        raw = await request.body()
+        if not verify_signature(settings.whatsapp_app_secret, raw, request.headers.get("x-hub-signature-256")):
+            raise HTTPException(403, detail={"code": "forbidden", "message": "Неверная подпись"})
+        try:
+            payload = json.loads(raw or b"{}")
+        except ValueError:
+            return {"received": 0}
+        handled = 0
+        for msg in parse_incoming(payload if isinstance(payload, dict) else {}):
+            thread = storage.waiting_thread_for_phone(msg["from"])
+            if thread is None:
+                # Нет открытого заказа с этим номером — сообщение не наше (или поздний ответ без контекста).
+                continue
+            apply_supplier_reply(thread, SupplierReplyIn(text=msg["text"][:1000]), "whatsapp")
+            handled += 1
+        # WhatsApp ждёт 200 быстро, иначе шлёт повторно.
+        return {"received": handled}
 
     # ---- разговор
     @app.post("/agent/chat", response_model=ChatOut)
@@ -282,7 +496,7 @@ def register(
         ctx = ChatContext(
             diff,
             rules,
-            SUPPLIERS,
+            suppliers_for_shop(shop_id, x_device_id),
             shop.name if shop else "",
             last.result.model_dump() if last and last.result else None,
         )
@@ -321,9 +535,10 @@ def register(
         if shop is None and walk.shop_id and x_device_id:
             shop = storage.get_shop(walk.shop_id, x_device_id)
         shop_name = shop.name if shop else "Dukon"
+        pool = suppliers_for_shop(walk.shop_id, x_device_id)
         out: list[Order] = []
         for draft in body.drafts:
-            supplier = by_id(draft.supplier_id)
+            supplier = by_id(draft.supplier_id, pool)
             if supplier is None:
                 raise HTTPException(
                     422, detail={"code": "validation", "message": f"Нет поставщика {draft.supplier_id}"}
