@@ -62,6 +62,18 @@ class Settings(BaseSettings):
     # Верить ли X-Forwarded-For. Без доверенного прокси заголовок ставит сам клиент и обнуляет лимит на адрес.
     # На Render/Vercel за прокси — true: берём последний адрес списка, его дописал прокси, а не клиент.
     trust_forwarded_for: bool = False
+    # Адрес фронта для ссылок поставщику («ответьте здесь: …/s/<token>»).
+    public_base_url: str = "http://localhost:5173"
+    # Сколько секунд агент ждёт живого ответа поставщика, прежде чем продолжить сам.
+    supplier_reply_timeout_s: int = 180
+    # Что делать, если поставщик не ответил вовремя: simulate — ответить симулятором, skip — пропустить поставщика.
+    supplier_fallback: str = "simulate"
+    # WhatsApp Cloud API (Meta): без этих значений канал whatsapp работает как ссылка-ответ.
+    whatsapp_token: str = ""
+    whatsapp_phone_id: str = ""
+    whatsapp_verify_token: str = ""
+    whatsapp_app_secret: str = ""
+    whatsapp_api_base: str = "https://graph.facebook.com/v21.0"
 
     @property
     def cors_list(self) -> list[str]:
@@ -70,6 +82,10 @@ class Settings(BaseSettings):
     @property
     def voice_audio_lang_set(self) -> set[str]:
         return {x.strip() for x in self.voice_audio_langs.split(",") if x.strip()}
+
+    @property
+    def whatsapp_enabled(self) -> bool:
+        return bool(self.whatsapp_token and self.whatsapp_phone_id)
 
     @property
     def live_enabled(self) -> bool:

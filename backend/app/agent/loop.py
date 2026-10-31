@@ -28,8 +28,10 @@ def run(
     lang: str = "en",
     max_steps: int = MAX_STEPS,
     on_event: Callable[[AgentEvent], None] | None = None,
+    channel: Any = None,
 ) -> tuple[list[AgentEvent], AgentResult]:
-    bench = Workbench(drafts=drafts, rules=rules, suppliers=suppliers)
+    """channel — как разговаривать с поставщиками: None/SimChannel — симулятор, LiveChannel — WhatsApp."""
+    bench = Workbench(drafts=drafts, rules=rules, suppliers=suppliers, channel=channel)
     events: list[AgentEvent] = []
     step = 0
 
@@ -38,6 +40,9 @@ def run(
         events.append(ev)
         if on_event:
             on_event(ev)
+
+    # Верстак сообщает «ждём поставщика» тем же журналом, что и цикл.
+    bench.notify = emit
 
     emit("start", "", drafts=[d.model_dump(mode="json") for d in drafts], rules=rules.model_dump())
     brain.start(drafts, rules, suppliers, lang)

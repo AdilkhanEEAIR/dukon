@@ -18,7 +18,18 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .domain.schemas import AgentEvent, AgentRun, Order, PhotoAnalysis, Rules, Shop, Walk
+from .domain.schemas import (
+    AgentEvent,
+    AgentRun,
+    Order,
+    PhotoAnalysis,
+    Rules,
+    Shop,
+    Supplier,
+    SupplierThread,
+    Walk,
+    utcnow,
+)
 
 
 class Storage:
@@ -84,6 +95,25 @@ class Storage:
                     body TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS orders_shop ON orders (shop_id, created_at);
+                CREATE TABLE IF NOT EXISTS suppliers (
+                    id TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL,
+                    shop_id TEXT,
+                    created_at TEXT NOT NULL,
+                    body TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS suppliers_owner ON suppliers (owner, shop_id);
+                CREATE TABLE IF NOT EXISTS supplier_threads (
+                    token TEXT PRIMARY KEY,
+                    run_id TEXT NOT NULL,
+                    owner TEXT NOT NULL,
+                    phone TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    body TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS supplier_threads_run ON supplier_threads (run_id, created_at);
+                CREATE INDEX IF NOT EXISTS supplier_threads_phone ON supplier_threads (phone, status, created_at);
                 """
             )
             # База из прошлой версии: у обходов ещё нет колонки магазина — добавляем, данные не трогаем.
@@ -374,6 +404,81 @@ class Storage:
             if shop_id:
                 return self._conn.execute("DELETE FROM orders WHERE shop_id = ?", (shop_id,)).rowcount
             return self._conn.execute("DELETE FROM orders").rowcount
+
+    # ---- свои поставщики хозяина
+    def list_suppliers(self, owner: str, shop_id: str | None) -> list[Supplier]:
+        rows = self._all(
+            "SELECT body FROM suppliers WHERE owner = ? AND shop_id IS ? ORDER BY created_at ASC", (owner, shop_id)
+        )
+        return [Supplier.model_validate_json(r["body"]) for r in rows]
+
+    def get_supplier(self, supplier_id: str, owner: str) -> Supplier | None:
+        row = self._one("SELECT body FROM suppliers WHERE id = ? AND owner = ?", (supplier_id, owner))
+        return Supplier.model_validate_json(row["body"]) if row else None
+
+    def save_supplier(self, owner: str, supplier: Supplier) -> Supplier:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO suppliers (id, owner, shop_id, created_at, body) VALUES (?, ?, ?, "
+                "COALESCE((SELECT created_at FROM suppliers WHERE id = ?), ?), ?)",
+                (supplier.id, owner, supplier.shop_id, supplier.id, utcnow().isoformat(), supplier.model_dump_json()),
+            )
+        return supplier
+
+    def delete_supplier(self, supplier_id: str, owner: str) -> bool:
+        with self._lock, self._conn:
+            cur = self._conn.execute("DELETE FROM suppliers WHERE id = ? AND owner = ?", (supplier_id, owner))
+            return cur.rowcount > 0
+
+    # ---- живые разговоры с поставщиками
+    def save_thread(self, thread: SupplierThread) -> SupplierThread:
+        digits = "".join(ch for ch in thread.supplier_phone if ch.isdigit())
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO supplier_threads (token, run_id, owner, phone, status, created_at, body) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    thread.token,
+                    thread.run_id,
+                    thread.owner,
+                    digits,
+                    thread.status,
+                    thread.created_at.isoformat(),
+                    thread.model_dump_json(),
+                ),
+            )
+        return thread
+
+    def get_thread(self, token: str) -> SupplierThread | None:
+        row = self._one("SELECT body, owner FROM supplier_threads WHERE token = ?", (token,))
+        if not row:
+            return None
+        thread = SupplierThread.model_validate_json(row["body"])
+        thread.owner = row["owner"]
+        return thread
+
+    def threads_for_run(self, run_id: str) -> list[SupplierThread]:
+        rows = self._all("SELECT body, owner FROM supplier_threads WHERE run_id = ? ORDER BY created_at ASC", (run_id,))
+        out = []
+        for r in rows:
+            t = SupplierThread.model_validate_json(r["body"])
+            t.owner = r["owner"]
+            out.append(t)
+        return out
+
+    def waiting_thread_for_phone(self, phone: str) -> SupplierThread | None:
+        """Последний открытый разговор с этим номером — так входящее WhatsApp-сообщение находит свой заказ."""
+        digits = "".join(ch for ch in phone if ch.isdigit())
+        row = self._one(
+            "SELECT body, owner FROM supplier_threads WHERE phone = ? AND status = 'waiting' "
+            "ORDER BY created_at DESC LIMIT 1",
+            (digits,),
+        )
+        if not row:
+            return None
+        thread = SupplierThread.model_validate_json(row["body"])
+        thread.owner = row["owner"]
+        return thread
 
     def close(self) -> None:
         with self._lock:

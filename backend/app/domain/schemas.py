@@ -272,6 +272,9 @@ class Discount(BaseModel):
     pct: float = Field(ge=0, le=100)
 
 
+SupplierChannel = Literal["simulated", "link", "whatsapp"]
+
+
 class Supplier(BaseModel):
     id: str
     name: str
@@ -279,7 +282,13 @@ class Supplier(BaseModel):
     name_en: str = ""
     categories: list[Category]
     contact: str = ""
+    contact_en: str = ""
     phone: str = ""
+    # Как с ним разговаривает агент: симулятор (демо), ссылка-ответ в WhatsApp или WhatsApp Cloud API.
+    channel: SupplierChannel = "simulated"
+    # Поставщик, которого добавил хозяин (а не встроенный образец): привязан к магазину.
+    custom: bool = False
+    shop_id: str | None = None
     # Дни доставки: 0 — понедельник … 6 — воскресенье. Поставщик привозит только в эти дни.
     delivery_days: list[int] = Field(default_factory=list)
     min_order_kgs: float = 0.0
@@ -381,6 +390,7 @@ class AgentEvent(BaseModel):
         "verifier_ok",
         "verifier_block",
         "supplier_reply",
+        "waiting",
         "fix",
         "skip",
         "final",
@@ -413,6 +423,77 @@ class AgentRun(BaseModel):
     events: list[AgentEvent] = Field(default_factory=list)
     result: AgentResult | None = None
     error: str | None = None
+
+
+class SupplierIn(BaseModel):
+    """Свой поставщик хозяина: имя, настоящий номер WhatsApp и условия."""
+
+    name: str = Field(min_length=1, max_length=60)
+    contact: str = Field(default="", max_length=40)
+    phone: str = Field(default="", max_length=20)
+    categories: list[Category] = Field(min_length=1)
+    delivery_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6])
+    min_order_kgs: float = Field(default=0, ge=0, le=10_000_000)
+    # 0 — взять размер упаковки по категории.
+    pack_size: int = Field(default=0, ge=0, le=1000)
+    channel: SupplierChannel = "link"
+
+    @field_validator("phone")
+    @classmethod
+    def _phone(cls, value: str) -> str:
+        digits = "".join(ch for ch in value if ch.isdigit())
+        if value and not (8 <= len(digits) <= 15):
+            raise ValueError("phone must be 8–15 digits in international format")
+        return f"+{digits}" if digits else ""
+
+    @field_validator("delivery_days")
+    @classmethod
+    def _days(cls, value: list[int]) -> list[int]:
+        days = sorted({d for d in value if 0 <= d <= 6})
+        if not days:
+            raise ValueError("at least one delivery day")
+        return days
+
+
+class ThreadMessage(BaseModel):
+    sender: Literal["agent", "supplier", "system"]
+    text: str
+    at: datetime = Field(default_factory=utcnow)
+
+
+class SupplierThread(BaseModel):
+    """Живой разговор с поставщиком: агент отправил предложение и ждёт ответа по ссылке или в WhatsApp."""
+
+    token: str
+    run_id: str
+    walk_id: str
+    shop_id: str | None = None
+    owner: str = Field(default="", exclude=True)
+    supplier_id: str
+    supplier_name: str
+    supplier_phone: str = ""
+    shop_name: str = ""
+    channel: SupplierChannel = "link"
+    status: Literal["waiting", "answered", "simulated", "expired", "closed"] = "waiting"
+    created_at: datetime = Field(default_factory=utcnow)
+    expires_at: datetime = Field(default_factory=utcnow)
+    draft: SupplierDraft
+    message: str = ""
+    whatsapp_url: str = ""
+    messages: list[ThreadMessage] = Field(default_factory=list)
+    reply: SupplierReply | None = None
+    raw_reply: str = ""
+    # Итог агента после подтверждения — то, что поставщик видит последним.
+    confirmation: str = ""
+
+
+class SupplierReplyIn(BaseModel):
+    """Что прислал поставщик: кнопка, свободный текст или и то и другое."""
+
+    text: str = Field(default="", max_length=1000)
+    choice: Literal["confirm", "out", "other_day", "decline"] | None = None
+    day: int | None = Field(default=None, ge=0, le=6)
+    rejected_skus: list[str] = Field(default_factory=list, max_length=50)
 
 
 class Order(BaseModel):

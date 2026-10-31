@@ -139,6 +139,12 @@ class Workbench:
     replies: dict[str, SupplierReply] = field(default_factory=dict)
     confirmed: dict[str, SupplierDraft] = field(default_factory=dict)
     skipped: list[dict[str, str]] = field(default_factory=list)
+    # Канал к поставщику: симулятор по умолчанию, живой WhatsApp — когда у магазина есть свои поставщики.
+    channel: Any = None
+    # Как верстак сообщает о промежуточных событиях (например, «ждём ответа поставщика»); ставит цикл.
+    notify: Any = None
+    # Что ответил живой поставщик, а что — симулятор за него: фронту для подписи, журналу для честности.
+    live_replies: dict[str, dict] = field(default_factory=dict)
     blocks: int = 0
     fixes: int = 0
     finished: bool = False
@@ -275,12 +281,16 @@ class Workbench:
                 "Нечего спрашивать: предложения нет или оно заблокировано",
                 supplier_id,
             )
-        reply = reply_to(draft, supplier)
+        if self.channel is not None:
+            reply, meta = self.channel.ask(draft, supplier, self.notify or (lambda *a, **k: None))
+        else:
+            reply, meta = reply_to(draft, supplier), {}
         self.replies[supplier_id] = reply
+        self.live_replies[supplier_id] = meta
         return ToolResult(
             "ask_supplier",
             True,
-            {"status": "ok", "reply": _reply_payload(reply)},
+            {"status": "ok", "reply": _reply_payload(reply), **meta},
             "supplier_reply",
             reply.message,
             supplier_id,
@@ -347,6 +357,9 @@ class Workbench:
                 supplier_id,
             )
         self.confirmed[supplier_id] = final
+        if self.channel is not None:
+            # Живой поставщик получает итог в тот же разговор; у симулятора это пустая операция.
+            self.channel.confirmed(final, supplier)
         return ToolResult(
             "confirm_order",
             True,
