@@ -169,7 +169,7 @@ function PhotoWithBoxes({ photo, items, selected, onSelect }: { photo: PhotoAnal
   const stroke = Math.max(2, Math.round(photo.width / 400))
   return (
     <div className="seen-photo" style={{ aspectRatio: `${photo.width} / ${photo.height}` }}>
-      <img src={api.photoUrl(photo.photo_id)} alt="" onError={() => setMissing(true)} data-testid="seen-img" />
+      <img src={api.photoUrl(photo)} alt="" onError={() => setMissing(true)} data-testid="seen-img" />
       <svg viewBox={`0 0 ${photo.width} ${photo.height}`} preserveAspectRatio="none" aria-hidden data-testid="seen-boxes">
         {(photo.price_tags ?? []).map((b, i) => (
           <rect key={`tag-${i}`} x={b.x1} y={b.y1} width={b.x2 - b.x1} height={b.y2 - b.y1} className="box box--tag" strokeWidth={stroke} />

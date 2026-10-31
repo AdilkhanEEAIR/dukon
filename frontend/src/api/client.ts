@@ -126,12 +126,24 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 90_0
   }
 }
 
+/** Код устройства из хранилища браузера: сервер отдаёт обходы, прогоны и заказы только их владельцу,
+ *  поэтому заголовок идёт с каждым запросом, даже с чтением. Явный заголовок в init важнее. */
+export function deviceHeader(): Record<string, string> {
+  try {
+    const id = localStorage.getItem('dukon.device')
+    return id && /^[A-Za-z0-9_-]{8,64}$/.test(id) ? { 'x-device-id': id } : {}
+  } catch {
+    return {}
+  }
+}
+
 async function send<T>(path: string, init: RequestInit, timeoutMs: number): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   let res: Response
   try {
-    res = await fetch(API_BASE + path, { ...init, signal: controller.signal })
+    const headers = { ...deviceHeader(), ...((init.headers as Record<string, string> | undefined) ?? {}) }
+    res = await fetch(API_BASE + path, { ...init, headers, signal: controller.signal })
   } catch (err) {
     clearTimeout(timer)
     if ((err as Error).name === 'AbortError') throw new ApiError('timeout', 'timeout', 0, true)
@@ -242,8 +254,10 @@ export const api = {
     if (opts.deviceId) headers['x-device-id'] = opts.deviceId
     return request<Walk>(`/walks/sample${query({ shop_id: opts.shopId })}`, { method: 'POST', headers }, 180_000)
   },
-  /** Адрес уменьшенного фото обхода: поверх него экран «Что я увидел» рисует рамки. */
-  photoUrl: (photoId: string) => `${API_BASE}/photos/${encodeURIComponent(photoId)}.jpg`,
+  /** Адрес уменьшенного фото обхода: подписанная сервером ссылка — тег <img> заголовков не шлёт,
+   *  поэтому право открыть фото живёт в самом адресе. Старые ответы без ссылки — голый хэш (сервер откажет). */
+  photoUrl: (photo: { photo_id: string; url?: string | null }) =>
+    photo.url ? `${API_BASE}${photo.url}` : `${API_BASE}/photos/${encodeURIComponent(photo.photo_id)}.jpg`,
 }
 
 /** Поток событий прогона: события приходят по одному, в конце — прогон целиком. Без сервера — повтор из снимка. */
@@ -259,7 +273,7 @@ export async function streamRun(run: AgentRun, onEvent: (ev: AgentEvent) => void
   let final: AgentRun | null = null
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/agent/runs/${encodeURIComponent(run.id)}/events`, { signal })
+    res = await fetch(`${API_BASE}/agent/runs/${encodeURIComponent(run.id)}/events`, { signal, headers: deviceHeader() })
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw new ApiError('timeout', 'timeout', 0, true)
     throw new ApiError('network', 'network', 0, true)

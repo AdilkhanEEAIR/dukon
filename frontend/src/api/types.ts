@@ -47,6 +47,8 @@ export interface PhotoAnalysis {
   seconds?: number
   /** Когда снято (из EXIF); обход датируется съёмкой, а не загрузкой. */
   taken_at?: string | null
+  /** Подписанная ссылка на уменьшенное фото (ставит сервер). */
+  url?: string | null
 }
 
 export type WalkSource = 'live' | 'demo' | 'upload'
