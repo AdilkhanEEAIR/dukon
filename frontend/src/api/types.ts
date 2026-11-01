@@ -103,6 +103,8 @@ export interface ItemChange {
   days_left: number | null
   price_before: number | null
   price_after: number | null
+  /** Цена, которую хозяин ввёл сам: на полке ценника нет, а потери считать надо. */
+  price_owner?: number | null
   loss_per_day: number
   suggested_order: number
   reason: string

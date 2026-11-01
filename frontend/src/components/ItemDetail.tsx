@@ -1,9 +1,13 @@
 // Карточка товара: было → стало, факты, предложение агента. Используется и в шторке, и на странице.
 
-import { Gauge, Hourglass, Package, Tag, Wallet } from 'lucide-react'
+import { Gauge, Hourglass, Package, PencilLine, Tag, Wallet } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { api, errorCode } from '../api/client'
 import type { ItemChange, Walk } from '../api/types'
+import { useLatest } from '../app/data'
+import { useViewShop } from '../app/shops'
 import { Button } from './Button'
+import { NumberInput } from './Fields'
 import { ForecastChart, type Point } from './charts/Charts'
 import { CountUp } from './CountUp'
 import { Pill, STATUS_TONE } from './Pill'
@@ -32,7 +36,8 @@ export function ItemDetail({ change, history }: { change: ItemChange; history?: 
   const iconBox = useRef<HTMLSpanElement>(null)
   const tone = STATUS_TONE[change.status]
   const max = Math.max(change.before ?? 0, change.after, 1)
-  const price = change.price_after ?? change.price_before
+  const tagPrice = change.price_after ?? change.price_before
+  const price = tagPrice ?? change.price_owner ?? null
 
   return (
     <div className="stack" style={{ gap: 20 }} data-testid="item-detail">
@@ -42,12 +47,24 @@ export function ItemDetail({ change, history }: { change: ItemChange; history?: 
         </span>
         <div className="stack stack--tight" style={{ minWidth: 0 }}>
           <h2 className="h2">{product(change.name)}</h2>
-          <span className="small row" style={{ gap: 6 }}>
+          <span className="small row row--wrap" style={{ gap: 6 }}>
             <Tag size={14} />
-            {t('item.priceTag')}: <Money kgs={price} kind="price" />
+            {tagPrice !== null ? (
+              <>
+                {t('item.priceTag')}: <Money kgs={tagPrice} kind="price" />
+              </>
+            ) : price !== null ? (
+              <>
+                {t('item.yourPrice')}: <Money kgs={price} kind="price" />
+              </>
+            ) : (
+              <span className="c-ink-2">{t('item.noPriceTag')}</span>
+            )}
           </span>
         </div>
       </div>
+
+      {tagPrice === null && <OwnerPrice change={change} />}
 
       <div className="sheet sheet--soft sheet--pad stack" style={{ gap: 14 }}>
         <div className="row row--between" style={{ alignItems: 'flex-end' }}>
@@ -128,5 +145,59 @@ export function ItemDetail({ change, history }: { change: ItemChange; history?: 
         </div>
       )}
     </div>
+  )
+}
+
+/** Ценника на полке нет (так в большинстве магазинов у дома): хозяин вводит цену один раз, Dukon её помнит
+ *  для этого магазина и дальше считает потери и заказы в деньгах. Ценник, если появится, главнее. */
+function OwnerPrice({ change }: { change: ItemChange }) {
+  const { t } = useI18n()
+  const { deviceId } = useSettings()
+  const shop = useViewShop()
+  const { reload } = useLatest()
+  const toast = useToast()
+  const [editing, setEditing] = useState(change.price_owner === null || change.price_owner === undefined)
+  const [value, setValue] = useState(change.price_owner ?? 0)
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    if (value <= 0) return
+    setSaving(true)
+    try {
+      await api.setPrice(shop.id, change.sku, value, deviceId)
+      toast('success', t('item.priceSaved'))
+      setEditing(false)
+      // Потери и заказы пересчитываются на сервере — перечитываем отчёт.
+      void reload()
+    } catch (err) {
+      toast('danger', t(`errors.${errorCode(err).code}.title` as never))
+    } finally {
+      setSaving(false)
+    }
+  }
+  if (!editing) {
+    return (
+      <button type="button" className="small row c-accent link-btn" style={{ gap: 6, fontWeight: 600 }} onClick={() => setEditing(true)} data-testid="price-edit">
+        <PencilLine size={14} /> {t('item.changePrice')}
+      </button>
+    )
+  }
+  return (
+    <form
+      className="row row--wrap"
+      style={{ gap: 8, alignItems: 'flex-end' }}
+      onSubmit={(e) => {
+        e.preventDefault()
+        void save()
+      }}
+      data-testid="price-form"
+    >
+      <label className="field" style={{ flex: '1 1 140px' }}>
+        <span className="field__label">{t('item.setPrice')}</span>
+        <NumberInput value={value} onChange={setValue} min={0} max={1_000_000} decimals data-testid="price-input" />
+      </label>
+      <Button size="sm" type="submit" loading={saving} disabled={value <= 0} data-testid="price-save">
+        {t('item.savePrice')}
+      </Button>
+    </form>
   )
 }

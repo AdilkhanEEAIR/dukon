@@ -213,6 +213,12 @@ export const api = {
     return request<Supplier>(`/suppliers/${encodeURIComponent(id)}`, { ...init, method: 'PUT', headers: withDevice(deviceId, init.headers as Record<string, string>) })
   },
   deleteSupplier: (id: string, deviceId?: string) => request<{ deleted: number }>(`/suppliers/${encodeURIComponent(id)}`, { method: 'DELETE', headers: withDevice(deviceId) }),
+  // Цены от хозяина для полок без ценников: свои у каждого устройства и магазина.
+  prices: (shopId: string | null, deviceId?: string) => request<Record<string, number>>(`/prices${query({ shop_id: shopId ?? undefined })}`, { headers: withDevice(deviceId) }),
+  setPrice: (shopId: string | null, sku: string, price: number, deviceId?: string) => {
+    const init = json({ sku, price })
+    return request<{ sku: string; price: number }>(`/prices${query({ shop_id: shopId ?? undefined })}`, { ...init, method: 'PUT', headers: withDevice(deviceId, init.headers as Record<string, string>) })
+  },
   // Страница поставщика: без кода устройства — ссылку знает только тот, кому её прислал агент.
   thread: (token: string) => request<SupplierThread>(`/s/${encodeURIComponent(token)}`),
   replyThread: (token: string, body: SupplierReplyIn) => {
