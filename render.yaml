@@ -27,6 +27,11 @@ services:
         value: /var/data
       - key: DB_PATH
         value: /var/data/dukon.sqlite3
+      # Судьи открывают сайт без демо-кода; кредиты держат лимит на устройство, на адрес и дневной потолок.
+      - key: OPEN_ACCESS
+        value: "true"
+      - key: OPEN_CALLS_PER_DEVICE
+        value: "60"
       # За прокси Render настоящий адрес клиента — последний в X-Forwarded-For.
       - key: TRUST_FORWARDED_FOR
         value: "true"
