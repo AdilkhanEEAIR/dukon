@@ -99,9 +99,17 @@ class ApproveIn(BaseModel):
 
 
 def register(
-    app: FastAPI, settings: Settings, storage: Storage, provider, limiter: RateLimiter, device_id, walk_access
+    app: FastAPI,
+    settings: Settings,
+    storage: Storage,
+    provider,
+    limiter: RateLimiter,
+    device_id,
+    walk_access,
+    prices_for=lambda walk, x_device_id: {},
 ) -> None:
-    """device_id — зависимость из api.py: код устройства из заголовка; walk_access — проверка владельца обхода."""
+    """device_id — зависимость из api.py: код устройства из заголовка; walk_access — проверка владельца обхода;
+    prices_for — цены хозяина для обхода (полки без ценников)."""
 
     app.state.agent_threads = []
 
@@ -241,7 +249,7 @@ def register(
     def drafts(walk_id: str = Query(max_length=64), x_device_id: str | None = Header(default=None)):
         walk = walk_or_404(walk_id, x_device_id)
         rules = storage.get_rules(walk.shop_id)
-        diff = diff_walks(storage.previous_walk(walk), walk)
+        diff = diff_walks(storage.previous_walk(walk), walk, prices_for(walk, x_device_id))
         items = build_drafts(diff, rules, suppliers_for_shop(walk.shop_id, x_device_id))
         return DraftsResponse(
             walk_id=walk.id,
@@ -262,7 +270,7 @@ def register(
     ):
         walk = walk_or_404(walk_id, x_device_id)
         rules = storage.get_rules(walk.shop_id)
-        diff = diff_walks(storage.previous_walk(walk), walk)
+        diff = diff_walks(storage.previous_walk(walk), walk, prices_for(walk, x_device_id))
         pool = suppliers_for_shop(walk.shop_id, x_device_id)
         items = build_drafts(diff, rules, pool)
         # Заказывать нечего — модель не зовём: она придумывает «пробные заказы» по пустому списку
@@ -483,7 +491,7 @@ def register(
             shop_id = walk.shop_id
         check_shop_access(shop_id, x_device_id)
         rules = storage.get_rules(shop_id)
-        diff = diff_walks(storage.previous_walk(walk), walk) if walk else None
+        diff = diff_walks(storage.previous_walk(walk), walk, prices_for(walk, x_device_id)) if walk else None
         shop = (
             (
                 storage.get_shop(shop_id, DEMO_OWNER)

@@ -31,7 +31,7 @@ import logging
 import re
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
@@ -44,7 +44,7 @@ from .agent_api import register as register_agent
 from .config import Settings, get_settings
 from .demo_data import DEMO_OWNER, demo_shops, demo_walks
 from .domain.diff import diff_walks
-from .domain.schemas import BranchSummary, Shop, ShopIn, ShopPatch, Walk, WalkDiff
+from .domain.schemas import BranchSummary, PriceIn, Shop, ShopIn, ShopPatch, Walk, WalkDiff
 from .models import build_provider
 from .models.meta import ProviderError
 from .pipeline.analyze import PIPELINE_VERSION, analyze_photo
@@ -245,10 +245,11 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         x_device_id: str | None = Header(default=None),
     ):
         if scope == "demo":
-            shops, sources = storage.list_shops(DEMO_OWNER), ("demo",)
+            shops, sources, owner = storage.list_shops(DEMO_OWNER), ("demo",), None
         else:
-            shops, sources = storage.list_shops(device_id(x_device_id)), ("live", "upload")
-        return [_summary(storage, shop, sources) for shop in shops]
+            owner = device_id(x_device_id)
+            shops, sources = storage.list_shops(owner), ("live", "upload")
+        return [_summary(storage, shop, sources, storage.get_prices(owner, shop.id)) for shop in shops]
 
     @app.get("/walks", response_model=list[Walk])
     def list_walks(
@@ -283,7 +284,31 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         if walk is None:
             raise HTTPException(404, detail={"code": "not_found", "message": "Обход не найден"})
         walk_access(walk, x_device_id)
-        return diff_walks(storage.previous_walk(walk), walk)
+        return diff_walks(storage.previous_walk(walk), walk, prices_for(walk, x_device_id))
+
+    def prices_for(walk: Walk, x_device_id: str | None) -> dict[str, float]:
+        """Цены хозяина для магазина обхода — только по настоящему коду устройства (демо без кода — пусто)."""
+        if not x_device_id or not DEVICE_ID.match(x_device_id) or x_device_id == DEMO_OWNER:
+            return {}
+        return storage.get_prices(x_device_id, walk.shop_id)
+
+    # ---- цены от хозяина: для полок без ценников
+    @app.get("/prices")
+    def list_prices(shop_id: str | None = Query(default=None, max_length=64), owner: str = Depends(device_id)):
+        return storage.get_prices(owner, shop_id)
+
+    @app.put("/prices")
+    def put_price(
+        body: PriceIn, shop_id: str | None = Query(default=None, max_length=64), owner: str = Depends(device_id)
+    ):
+        storage.set_price(owner, shop_id, body.sku, body.price)
+        return {"sku": body.sku, "price": body.price}
+
+    @app.delete("/prices/{sku}")
+    def delete_price(
+        sku: str, shop_id: str | None = Query(default=None, max_length=64), owner: str = Depends(device_id)
+    ):
+        return {"deleted": 1 if storage.delete_price(owner, shop_id, sku) else 0}
 
     async def ingest(walk: Walk, uploads: list[UploadFile], known_names: list[str]) -> int:
         """Разбирает фото и кладёт их в обход. Возвращает число настоящих вызовов моделей (из кэша — 0)."""
@@ -396,22 +421,40 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
     ):
         """Обход на примере: настоящая полка из Бишкека, лежит в samples/. Код не нужен.
 
+        Если в samples/before и samples/after лежат два снимка одной полки, судья получает сразу пару
+        обходов «до/после»: потери в деньгах и заказ видны в один клик. Иначе — один обход из samples/.
         Первый разбор зовёт модели, дальше ответ берётся из кэша — судья видит живой результат
         за секунду и не тратит кредиты. Дневной потолок и лимит на адрес действуют как обычно.
         """
-        photos = sorted(SAMPLES_DIR.glob("*.jpg"))
-        if not photos:
+        before = sorted((SAMPLES_DIR / "before").glob("*.jpg"))
+        after = sorted((SAMPLES_DIR / "after").glob("*.jpg"))
+        single = sorted(SAMPLES_DIR.glob("*.jpg"))
+        if not (before and after) and not single:
             raise HTTPException(404, detail={"code": "not_found", "message": "Примеров на сервере нет"})
         owner = device_id(x_device_id)
         if shop_id and storage.get_shop(shop_id, owner) is None:
             raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
         guard_live(request, settings, storage, limiter, require_key=False)
-        walk = Walk(
-            id="live-" + uuid.uuid4().hex[:10], label="Пример · Глобус", source="live", shop_id=shop_id, owner=owner
-        )
-        uploads = [UploadFile(file=io.BytesIO(p.read_bytes()), filename=p.name) for p in photos[:1]]
-        await ingest(walk, uploads, vocabulary(walk))
-        date_walk(walk)
+
+        async def sample(files: list[Path], label: str, known: list[str]) -> Walk:
+            walk = Walk(id="live-" + uuid.uuid4().hex[:10], label=label, source="live", shop_id=shop_id, owner=owner)
+            chosen = files[:MAX_PHOTOS_PER_WALK]
+            uploads = [UploadFile(file=io.BytesIO(p.read_bytes()), filename=p.name) for p in chosen]
+            await ingest(walk, uploads, known)
+            date_walk(walk)
+            return walk
+
+        if before and after:
+            first = await sample(before, "Sample · before", [])
+            storage.save_walk(first)
+            second = await sample(after, "Sample · after", [i.name for i in first.items])
+            # Время берётся из самих фото; если его нет, второй обход не должен оказаться раньше первого.
+            if second.created_at <= first.created_at:
+                second.created_at = first.created_at + timedelta(minutes=1)
+            storage.save_walk(second)
+            return with_urls(second)
+
+        walk = await sample(single[:1], "Sample · Bishkek", [])
         storage.save_walk(walk)
         return with_urls(walk)
 
@@ -458,18 +501,20 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         headers = {"Cache-Control": "public, max-age=31536000, immutable"}
         return FileResponse(path, media_type="image/jpeg", headers=headers)
 
-    register_agent(app, settings, storage, provider, limiter, device_id, walk_access)
+    register_agent(app, settings, storage, provider, limiter, device_id, walk_access, prices_for)
     return app
 
 
-def _summary(storage: Storage, shop: Shop, sources: tuple[str, ...]) -> BranchSummary:
+def _summary(
+    storage: Storage, shop: Shop, sources: tuple[str, ...], prices: dict[str, float] | None = None
+) -> BranchSummary:
     walks = sorted(
         (w for src in sources for w in storage.list_walks(source=src, shop_id=shop.id)), key=lambda w: w.created_at
     )
     if not walks:
         return BranchSummary(shop=shop, walks=0)
     last = walks[-1]
-    diff = diff_walks(storage.previous_walk(last), last)
+    diff = diff_walks(storage.previous_walk(last), last, prices)
     return BranchSummary(
         shop=shop,
         walks=len(walks),

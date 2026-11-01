@@ -156,6 +156,8 @@ class ItemChange(BaseModel):
     days_left: float | None = None
     price_before: float | None = None
     price_after: float | None = None
+    # Цена, которую хозяин ввёл сам: во многих магазинах ценников нет, а потери считать всё равно надо.
+    price_owner: float | None = None
     loss_per_day: float = 0.0
     suggested_order: int = 0
     reason: str = ""
@@ -296,6 +298,13 @@ class Supplier(BaseModel):
     discounts: list[Discount] = Field(default_factory=list)
     # Чего нет на складе на этой неделе (нормализованные sku) — для симулятора ответов.
     out_of_stock: list[str] = Field(default_factory=list)
+
+
+class PriceIn(BaseModel):
+    """Цена товара от хозяина: для полок без ценников."""
+
+    sku: str = Field(min_length=1, max_length=120)
+    price: float = Field(gt=0, le=1_000_000)
 
 
 class Rules(BaseModel):

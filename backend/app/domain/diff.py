@@ -234,7 +234,9 @@ def price_changed(before: float | None, after: float | None) -> bool:
     return delta >= PRICE_CHANGE_MIN_KGS and delta >= PRICE_CHANGE_MIN_SHARE * max(before, after)
 
 
-def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
+def diff_walks(before: Walk | None, after: Walk, prices: dict[str, float] | None = None) -> WalkDiff:
+    """prices — цены от хозяина по sku: подставляются там, где ценник не прочитан или его нет на полке."""
+    owner_prices = prices or {}
     hours = hours_between(before, after)
     # Скорость и потери считаем только через достаточный промежуток; иначе любая погрешность становится деньгами.
     too_soon = before is not None and hours < MIN_HOURS_FOR_VELOCITY
@@ -261,6 +263,9 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
         if price_misread(price_before, price_after):
             price_after = price_before
         price_known = price_after if price_after is not None else price_before
+        price_owner = owner_prices.get(key) or (owner_prices.get(prev_key) if prev_key else None)
+        if price_known is None and price_owner:
+            price_known = price_owner
 
         if cur.count == 0:
             status = Status.OUT
@@ -306,6 +311,7 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
                 days_left=days_left,
                 price_before=price_before,
                 price_after=price_after,
+                price_owner=price_owner,
                 loss_per_day=loss,
                 suggested_order=_suggest(velocity, cur.count, before_count, status, estimated),
                 reason=reason,
@@ -324,7 +330,9 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
         if estimated:
             velocity = _assumed_velocity(prev.count)
         any_estimated = any_estimated or estimated
-        loss = round(velocity * prev.price, 2) if prev.price and velocity > MIN_VELOCITY else 0.0
+        price_owner = owner_prices.get(key)
+        gone_price = prev.price if prev.price else price_owner
+        loss = round(velocity * gone_price, 2) if gone_price and velocity > MIN_VELOCITY else 0.0
         loss_total += loss
         changes.append(
             ItemChange(
@@ -338,6 +346,7 @@ def diff_walks(before: Walk | None, after: Walk) -> WalkDiff:
                 days_left=0.0,
                 price_before=prev.price,
                 price_after=None,
+                price_owner=price_owner,
                 loss_per_day=loss,
                 suggested_order=_suggest(velocity, 0, prev.count, Status.OUT, estimated),
                 reason=f"Было {prev.count}, на полке не найдено" + (" · оценка" if estimated else ""),

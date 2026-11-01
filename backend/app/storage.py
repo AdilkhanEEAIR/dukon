@@ -95,6 +95,14 @@ class Storage:
                     body TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS orders_shop ON orders (shop_id, created_at);
+                CREATE TABLE IF NOT EXISTS prices (
+                    owner TEXT NOT NULL,
+                    shop_id TEXT NOT NULL DEFAULT '',
+                    sku TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (owner, shop_id, sku)
+                );
                 CREATE TABLE IF NOT EXISTS suppliers (
                     id TEXT PRIMARY KEY,
                     owner TEXT NOT NULL,
@@ -404,6 +412,27 @@ class Storage:
             if shop_id:
                 return self._conn.execute("DELETE FROM orders WHERE shop_id = ?", (shop_id,)).rowcount
             return self._conn.execute("DELETE FROM orders").rowcount
+
+    # ---- цены от хозяина (полки без ценников)
+    def get_prices(self, owner: str | None, shop_id: str | None) -> dict[str, float]:
+        if not owner:
+            return {}
+        rows = self._all("SELECT sku, price FROM prices WHERE owner = ? AND shop_id = ?", (owner, shop_id or ""))
+        return {r["sku"]: float(r["price"]) for r in rows}
+
+    def set_price(self, owner: str, shop_id: str | None, sku: str, price: float) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO prices (owner, shop_id, sku, price, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (owner, shop_id or "", sku, price, utcnow().isoformat()),
+            )
+
+    def delete_price(self, owner: str, shop_id: str | None, sku: str) -> bool:
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "DELETE FROM prices WHERE owner = ? AND shop_id = ? AND sku = ?", (owner, shop_id or "", sku)
+            )
+            return cur.rowcount > 0
 
     # ---- свои поставщики хозяина
     def list_suppliers(self, owner: str, shop_id: str | None) -> list[Supplier]:

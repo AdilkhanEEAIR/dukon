@@ -272,3 +272,28 @@ def test_measured_velocity_never_orders_less_than_the_facing():
     after = _walk_at("b", NOW, [("Cola", 0, 95)])
     cola = diff_walks(before, after).changes[0]
     assert cola.estimated is False and cola.suggested_order >= 10
+
+
+def test_owner_price_fills_in_when_shelf_has_no_price_tag():
+    """Во многих магазинах ценников нет: хозяин вводит цену один раз, и потери считаются в деньгах."""
+    before = _walk("a", TWO_DAYS_AGO, [("Лепёшка", 10, None), ("Айран 1 л", 6, None)])
+    after = _walk("b", NOW, [("Лепёшка", 0, None), ("Айран 1 л", 2, None)])
+    silent = diff_walks(before, after)
+    assert silent.loss_per_day == 0 and silent.changes[0].price_owner is None
+    priced = diff_walks(before, after, {normalize_sku("Лепёшка"): 25.0})
+    gone = next(c for c in priced.changes if c.sku == normalize_sku("Лепёшка"))
+    assert gone.status == Status.OUT and gone.price_owner == 25.0
+    # 10 штук за двое суток — 5 в день; × 25 сом = 125 сом в день.
+    assert gone.loss_per_day == 125.0 and priced.loss_per_day == 125.0
+    # Ценник с полки главнее введённой цены.
+    with_tag = _walk("a", TWO_DAYS_AGO, [("Лепёшка", 10, 30)])
+    tagged = diff_walks(with_tag, _walk("b", NOW, [("Лепёшка", 0, None)]), {normalize_sku("Лепёшка"): 25.0})
+    assert tagged.changes[0].loss_per_day == 150.0
+
+
+def test_owner_price_counts_for_item_that_vanished_entirely():
+    before = _walk("a", TWO_DAYS_AGO, [("Лепёшка", 4, None)])
+    after = _walk("b", NOW, [("Снежок", 3, None)])
+    out = diff_walks(before, after, {normalize_sku("Лепёшка"): 25.0})
+    gone = next(c for c in out.changes if c.sku == normalize_sku("Лепёшка"))
+    assert gone.after == 0 and gone.price_owner == 25.0 and gone.loss_per_day == 50.0

@@ -47,6 +47,8 @@ def build_drafts(
         if supplier is None or supplier.id in rules.banned_suppliers:
             continue
         price = change.price_after if change.price_after is not None else change.price_before
+        if price is None:
+            price = change.price_owner
         qty = round_to_pack(change.suggested_order, supplier.pack_size)
         # Упаковка не должна тянуть заказ выше разрешённого запаса: тогда берём на упаковку меньше (или ноль).
         cap = max_units_by_stock(change.velocity_per_day, change.after, rules.max_stock_days)

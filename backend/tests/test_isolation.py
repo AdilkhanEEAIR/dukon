@@ -223,3 +223,26 @@ def test_open_access_still_needs_a_real_device_and_respects_daily_budget(live_se
 
 def test_closed_by_default(live_client):
     assert live_client.get("/health").json()["key_required"] is True
+
+
+# ---- цены от хозяина: свои у каждого устройства и магазина
+
+
+def test_owner_prices_are_scoped_and_change_the_diff(client):
+    assert client.put("/prices", params={"shop_id": "demo-chuy"}, json={"sku": "x", "price": 0}).status_code == 422
+    r = client.put("/prices", params={"shop_id": "demo-chuy"}, json={"sku": "fanta 1 л", "price": 90})
+    assert r.status_code == 200 and r.json() == {"sku": "fanta 1 л", "price": 90.0}
+    assert client.get("/prices", params={"shop_id": "demo-chuy"}).json() == {"fanta 1 л": 90.0}
+    assert client.get("/prices", params={"shop_id": "demo-chuy"}, headers=OTHER).json() == {}
+    assert client.get("/prices", params={"shop_id": "demo-manas"}).json() == {}
+    del client.headers["x-device-id"]
+    assert client.get("/prices", params={"shop_id": "demo-chuy"}).status_code == 400
+    client.headers["x-device-id"] = TEST_DEVICE
+    # В отчёте позиция без ценника получает цену хозяина; для другого устройства её нет.
+    diff = client.get("/walks/demo-tue/diff").json()
+    owned = [c for c in diff["changes"] if c["price_owner"] is not None]
+    assert owned and all(c["sku"] == "fanta 1 л" for c in owned)
+    other = client.get("/walks/demo-tue/diff", headers=OTHER).json()
+    assert all(c["price_owner"] is None for c in other["changes"])
+    assert client.delete("/prices/fanta 1 л", params={"shop_id": "demo-chuy"}).json() == {"deleted": 1}
+    assert client.delete("/prices/fanta 1 л", params={"shop_id": "demo-chuy"}).json() == {"deleted": 0}
