@@ -1,21 +1,32 @@
 # Сервер Dukon на Render: один веб-сервис из папки backend.
 # Секреты (ключ Meta, демо-код, WhatsApp) задаются в панели Render — sync: false,
 # чтобы они никогда не попали в репозиторий.
+# План starter не засыпает (бесплатный засыпает через 15 минут — судья ждал бы минуту),
+# а диск хранит базу и фото между деплоями: без него каждый пуш стирал бы обходы и поставщиков.
 services:
   - type: web
     name: dukon-api
     runtime: python
     rootDir: backend
-    plan: free
+    plan: starter
     buildCommand: pip install -r requirements.txt
     # Render сам выдаёт порт в $PORT; 0.0.0.0 — чтобы сервис был виден снаружи контейнера.
     startCommand: uvicorn app.api:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
+    disk:
+      name: dukon-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
       - key: PROVIDER
         value: meta
+      # База и фото — на постоянном диске, а не в папке кода, которая пересоздаётся при деплое.
+      - key: DATA_DIR
+        value: /var/data
+      - key: DB_PATH
+        value: /var/data/dukon.sqlite3
       # За прокси Render настоящий адрес клиента — последний в X-Forwarded-For.
       - key: TRUST_FORWARDED_FOR
         value: "true"
