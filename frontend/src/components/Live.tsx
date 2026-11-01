@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useSettings } from '../app/settings'
 import { useNow } from '../hooks/useNow'
 import { useI18n, type Locale } from '../i18n'
-import { fromKgs, type Currency } from '../lib/currency'
+import type { Currency } from '../lib/currency'
 import { formatMoney, formatTime } from '../lib/format'
 
 const DIGIT = { type: 'spring' as const, stiffness: 380, damping: 32 }
@@ -41,10 +41,10 @@ export function Odometer({ text, className, testId }: { text: string; className?
 }
 
 /** Сколько знаков нужно, чтобы последняя цифра менялась примерно раз в секунду: в сомах 2–3, в долларах 4. */
-export function meterDecimals(lossPerDayKgs: number, currency: Currency): number {
-  const perSecond = fromKgs(lossPerDayKgs, currency) / 86_400
-  if (perSecond <= 0) return 2
-  return Math.min(4, Math.max(2, Math.ceil(-Math.log10(perSecond))))
+export function meterDecimals(_lossPerDayKgs: number, currency: Currency): number {
+  // Раньше знаков было до четырёх, чтобы счётчик тикал каждую секунду, — «$8.1732» читается как ошибка.
+  // Теперь как на ценнике: центы для доллара и евро, целые сомы; счётчик просто тикает реже.
+  return currency === 'USD' || currency === 'EUR' ? 2 : 0
 }
 
 /** Потери за сегодня: потери в день × доля суток, прошедшая с полуночи. Пустое место на полке стоило денег

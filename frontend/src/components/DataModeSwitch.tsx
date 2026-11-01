@@ -6,7 +6,7 @@
 
 import { ArrowLeftRight, FlaskConical, RefreshCw, WifiOff } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useMode } from '../app/mode'
 import { useI18n } from '../i18n'
@@ -21,6 +21,7 @@ export function DataModeSwitch() {
   const { pathname } = useLocation()
   const toast = useToast()
   useModeToasts()
+  const hidden = useHideOnScroll()
 
   if (status === 'loading') return null
 
@@ -46,6 +47,7 @@ export function DataModeSwitch() {
   return (
     <motion.div
       className="data-switch-wrap"
+      data-hidden={hidden || undefined}
       initial={{ opacity: 0, y: 18, scale: 0.9 }}
       animate={{ opacity: 1, y: 0, scale: 1, transition: { ...SPRING, delay: 0.6 } }}
       role="group"
@@ -79,7 +81,7 @@ export function DataModeSwitch() {
               </span>
               <span className="data-switch__action">
                 <ArrowLeftRight size={15} />
-                {t('mode.switch.toLive')}
+                <span className="data-switch__action-text">{t('mode.switch.toLive')}</span>
               </span>
             </motion.span>
           )}
@@ -91,7 +93,7 @@ export function DataModeSwitch() {
               </span>
               <span className="data-switch__action">
                 <RefreshCw size={14} className="data-switch__spin" />
-                {t('mode.switch.serverDown')}
+                <span className="data-switch__action-text">{t('mode.switch.serverDown')}</span>
               </span>
             </motion.span>
           )}
@@ -118,4 +120,28 @@ function useModeToasts() {
     // Владелец сам выбрал демо — «снова ваши данные» было бы неправдой, говорим только, что связь вернулась.
     if (was === 'down' && status === 'ready') toast('success', t('mode.toast.back'), view.current === 'live' ? t('mode.toast.backBody') : undefined)
   }, [status, toast, t])
+}
+
+/** На телефоне плавающая кнопка закрывала кнопки страницы при прокрутке: прячем её, пока листают вниз,
+ *  и возвращаем, как только листают вверх или вернулись к началу. На широком экране место есть всегда. */
+function useHideOnScroll(): boolean {
+  const [hidden, setHidden] = useState(false)
+  const last = useRef(0)
+  useEffect(() => {
+    const narrow = () => window.matchMedia('(max-width: 1023px)').matches
+    const onScroll = (e: Event) => {
+      if (!narrow()) return
+      const el = e.target instanceof HTMLElement ? e.target : document.scrollingElement
+      const y = el ? el.scrollTop : window.scrollY
+      const down = y > last.current + 6
+      const up = y < last.current - 6
+      if (down && y > 80) setHidden(true)
+      else if (up || y <= 80) setHidden(false)
+      last.current = y
+    }
+    // capture: прокручиваться может и окно, и .app__main — ловим оба случая одним слушателем.
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    return () => document.removeEventListener('scroll', onScroll, { capture: true })
+  }, [])
+  return hidden
 }

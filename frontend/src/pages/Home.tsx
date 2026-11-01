@@ -14,7 +14,7 @@ import { StockChart } from '../components/charts/Charts'
 import { CountUp } from '../components/CountUp'
 import { Clock, LossMeter, TimeAgo } from '../components/Live'
 import { ItemRow } from '../components/ItemRow'
-import { ModePill, PageActions, ShopSwitcher } from '../components/Nav'
+import { PageActions, ShopSwitcher } from '../components/Nav'
 import { Pill } from '../components/Pill'
 import { LossTag } from '../components/PriceTag'
 import { ShelfArt } from '../components/ShelfArt'
@@ -121,8 +121,6 @@ function HomeContent({ data }: { data: Latest }) {
             <span aria-hidden>·</span>
             <TimeAgo at={walk.created_at} />
           </span>
-          <span className="grow" />
-          <ModePill compact />
         </div>
 
         <LossTag valueKgs={diff.loss_per_day} label={rich('home.lossTitle')} unit={t('common.perDay')} note={t('home.lossBody', { out: diff.out_of_stock, slots: diff.empty_slots })} />

@@ -123,8 +123,8 @@ describe('Настройки: источник данных', () => {
 
 describe('Живые счётчики', () => {
   it('сколько знаков: последняя цифра меняется примерно раз в секунду', () => {
-    expect(meterDecimals(765, 'KGS')).toBe(3)
-    expect(meterDecimals(765, 'USD')).toBe(4)
+    expect(meterDecimals(765, 'KGS')).toBe(0)
+    expect(meterDecimals(765, 'USD')).toBe(2)
     expect(meterDecimals(0, 'USD')).toBe(2)
     expect(meterDecimals(KGS_PER_UNIT.USD * 100_000, 'USD')).toBe(2)
   })

@@ -27,8 +27,11 @@
   bottom: calc(var(--tabbar-h) + 14px + env(safe-area-inset-bottom, 0px));
   z-index: 30;
 }
+.data-switch-wrap { transition: transform 320ms var(--ease-smooth), opacity 240ms ease; }
+.data-switch-wrap[data-hidden] { transform: translateY(140%); opacity: 0; pointer-events: none; }
 @media (min-width: 1024px) {
   .data-switch-wrap { right: 24px; bottom: 24px; }
+  .data-switch-wrap[data-hidden] { transform: none; opacity: 1; pointer-events: auto; }
 }
 .data-switch {
   display: inline-flex;
@@ -91,9 +94,12 @@
 .data-switch--down .data-switch__tag { background: var(--out-soft); color: var(--out); }
 .data-switch__action { display: inline-flex; align-items: center; gap: 6px; padding: 0 10px 0 8px; color: var(--ink); transition: color 240ms ease; }
 .data-switch__spin { animation: spin 2.4s linear infinite; }
-@media (max-width: 480px) {
-  .data-switch__tag-text { display: none; }
+/* На телефоне плашка — только иконки: развёрнутая «Демо · Вернуть мои данные» закрывала кнопки страницы. */
+@media (max-width: 640px) {
+  .data-switch__tag-text,
+  .data-switch__action-text { display: none; }
   .data-switch__tag { padding: 0 9px; }
+  .data-switch__action { padding: 0 8px; }
 }
 
 /* тосты встают над кнопкой, а контент страницы не прячется под ней */

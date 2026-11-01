@@ -24,20 +24,22 @@ html {
 .loss-word {
   color: var(--out);
   font-weight: 800;
-  padding: 0 1px;
-  border-radius: 2px;
-  background-image: linear-gradient(color-mix(in oklab, var(--out) 24%, transparent), color-mix(in oklab, var(--out) 24%, transparent));
+  padding: 0 4px;
+  margin: 0 -1px;
+  border-radius: 5px;
+  /* Тонкая красная черта снизу читалась как подчёркивание опечатки — теперь маркер на всю высоту слова. */
+  background-image: linear-gradient(color-mix(in oklab, var(--out) 14%, transparent), color-mix(in oklab, var(--out) 14%, transparent));
   background-repeat: no-repeat;
-  background-position: 0 90%;
-  background-size: 100% 0.38em;
+  background-position: 0 0;
+  background-size: 100% 100%;
   /* маркер прочерчивается слева направо после появления блока — взгляд цепляется за слово */
   animation: loss-mark 900ms var(--ease-smooth) 420ms backwards;
 }
 @keyframes loss-mark {
-  from { background-size: 0% 0.38em; }
+  from { background-size: 0% 100%; }
 }
 /* на бумажной бирке фон светлый в обеих темах — берём тёмный красный, чтобы читалось */
-.tag .loss-word { color: #c2321f; background-image: linear-gradient(#f6d2cb, #f6d2cb); }
+.tag .loss-word { color: #c2321f; background-image: linear-gradient(#f9ddd8, #f9ddd8); }
 .loss-label { font-size: 15px; font-weight: 600; color: var(--ink-2); }
 .metric__label .loss-word { font-size: 14px; }
 
