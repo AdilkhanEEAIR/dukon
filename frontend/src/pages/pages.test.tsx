@@ -347,6 +347,9 @@ describe('Полки и товар', () => {
     const rows = await screen.findAllByTestId('item-row')
     expect(rows[0]).toHaveTextContent('На полке')
     expect(screen.queryByText('Новый товар')).not.toBeInTheDocument()
+    // Кольцо не пустое: всё, что на полке, считается «на месте».
+    const okRow = screen.getAllByTestId(/-row$/).find((r) => r.textContent?.includes('На месте'))!
+    expect(okRow).toHaveTextContent(new RegExp(`На месте\\s*${diff.changes.length}`))
   })
 
   it('календарь: неделя вкладками, день с обходом открывает его отчёт, месяц — по кнопке', async () => {

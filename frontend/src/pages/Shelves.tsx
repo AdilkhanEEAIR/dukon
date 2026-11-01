@@ -105,7 +105,9 @@ function ReportBody({ report }: { report: Report }) {
   const close = useCallback(() => setOpen(null), [])
 
   const colors = useChartColors()
-  const okCount = diff.changes.filter((c) => c.status === 'ok').length
+  // Первый обход: товар «новый», сравнивать не с чем — для кольца он «на месте», иначе кольцо пустое и все нули.
+  const inPlace = (c: ItemChange) => c.status === 'ok' || c.status === 'new_item'
+  const okCount = diff.changes.filter(inPlace).length
   const counts: Record<Filter, number> = {
     all: diff.changes.filter((c) => c.status !== 'ok').length,
     out_of_stock: diff.out_of_stock,
@@ -127,7 +129,11 @@ function ReportBody({ report }: { report: Report }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [diff, colors, t],
   )
-  const visible = useMemo(() => (filter === 'all' ? diff.changes.filter((c) => c.status !== 'ok') : diff.changes.filter((c) => c.status === (filter as Status))), [diff, filter])
+  const visible = useMemo(
+    () => (filter === 'all' ? diff.changes.filter((c) => c.status !== 'ok') : filter === 'ok' ? diff.changes.filter(inPlace) : diff.changes.filter((c) => c.status === (filter as Status))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [diff, filter],
+  )
   const pickSlice = useCallback((id: string | null) => setFilter((id as Filter | null) ?? 'all'), [])
   const ok = diff.changes.filter((c) => c.status === 'ok')
   const since = diff.walk_before_id ? t('shelves.sinceLast', { t: formatHours(diff.hours_between, t) }) : t('shelves.firstWalk')
