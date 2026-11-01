@@ -179,3 +179,47 @@ def test_security_headers_on_every_response(client):
     assert h["x-frame-options"] == "DENY"
     assert h["referrer-policy"] == "no-referrer"
     assert "frame-ancestors 'none'" in h["content-security-policy"]
+
+
+# ---- Открытый доступ для судей: без демо-кода, но с лимитами
+
+
+def test_open_access_lets_judges_in_without_code_but_caps_each_device(live_settings, storage, provider):
+    opened = copy.deepcopy(live_settings)
+    opened.open_access = True
+    opened.open_calls_per_device = 2
+    opened.live_calls_per_hour_per_ip = 100
+    with TestClient(create_app(opened, storage, provider)) as c:
+        assert c.get("/health").json()["key_required"] is False
+        c.headers["x-device-id"] = "device-judge-0001"
+        codes = []
+        for i in range(3):
+            files = [("photos", (f"{i}.jpg", make_jpeg(300, 200, (i * 40, 10, 10)), "image/jpeg"))]
+            codes.append(c.post("/walks/analyze", files=files).status_code)
+        # Два вызова без кода проходят, третий упирается в суточный лимит устройства.
+        assert codes == [201, 201, 429]
+        # Другое устройство — свой лимит; с кодом лимит устройства не действует.
+        c.headers["x-device-id"] = "device-judge-0002"
+        files = [("photos", ("x.jpg", make_jpeg(300, 200, (1, 99, 1)), "image/jpeg"))]
+        assert c.post("/walks/analyze", files=files).status_code == 201
+        c.headers["x-device-id"] = "device-judge-0001"
+        files = [("photos", ("y.jpg", make_jpeg(300, 200, (2, 2, 99)), "image/jpeg"))]
+        assert c.post("/walks/analyze", files=files, headers=KEY).status_code == 201
+
+
+def test_open_access_still_needs_a_real_device_and_respects_daily_budget(live_settings, storage, provider):
+    opened = copy.deepcopy(live_settings)
+    opened.open_access = True
+    opened.live_calls_per_day_total = 1
+    with TestClient(create_app(opened, storage, provider)) as c:
+        files = [("photos", ("a.jpg", make_jpeg(300, 200, (5, 5, 5)), "image/jpeg"))]
+        assert c.post("/walks/analyze", files=files, headers={"x-device-id": "x"}).status_code == 400
+        c.headers["x-device-id"] = "device-judge-0003"
+        assert c.post("/walks/analyze", files=files).status_code == 201
+        files = [("photos", ("b.jpg", make_jpeg(300, 200, (6, 6, 6)), "image/jpeg"))]
+        r = c.post("/walks/analyze", files=files)
+        assert r.status_code == 429 and r.json()["detail"]["code"] == "daily_budget"
+
+
+def test_closed_by_default(live_client):
+    assert live_client.get("/health").json()["key_required"] is True

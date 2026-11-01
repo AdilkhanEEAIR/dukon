@@ -67,6 +67,10 @@ def trial_key(device: str) -> str:
     return f"trial:{device}:" + datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def open_key(device: str) -> str:
+    return f"open:{device}:" + datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
 def guard_live(
     request: Request,
     settings: Settings,
@@ -87,7 +91,22 @@ def guard_live(
             detail={"code": "live_disabled", "message": "Живой режим выключен на сервере. Доступно демо."},
         )
     key = request.headers.get("x-demo-key") or request.query_params.get("key", "")
-    if require_key and not hmac.compare_digest(key, settings.demo_key):
+    if require_key and not hmac.compare_digest(key, settings.demo_key) and settings.open_access:
+        # Открытый доступ: код не нужен, но у каждого устройства свой суточный лимит,
+        # чтобы один посетитель не выбрал общий дневной потолок за всех судей.
+        device = request.headers.get("x-device-id", "")
+        if not DEVICE_ID.match(device):
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "device_required", "message": "Нужен код устройства"},
+            )
+        if storage.get_counter(open_key(device)) >= settings.open_calls_per_device:
+            raise HTTPException(
+                status_code=429,
+                detail={"code": "rate_limited", "message": "Лимит живых вызовов на устройство на сегодня исчерпан."},
+            )
+        storage.increment(open_key(device))
+    elif require_key and not hmac.compare_digest(key, settings.demo_key):
         device = request.headers.get("x-device-id", "")
         # Пробный доступ — только настоящему коду устройства: мусор в заголовке не должен считаться устройством.
         allowed = trial and bool(DEVICE_ID.match(device)) and settings.live_trial_per_device > 0

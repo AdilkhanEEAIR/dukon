@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     demo_key: str = "dukon-judge"
     # Без кода тоже можно попробовать — столько живых вызовов в сутки на одно устройство (0 — выключить).
     live_trial_per_device: int = 3
+    # Открытый доступ для судей: живой режим без демо-кода (судья не читает README — он просто открывает сайт).
+    # Кредиты тогда держат три барьера: лимит на устройство в сутки, лимит на адрес в час и общий дневной потолок.
+    open_access: bool = False
+    open_calls_per_device: int = 60
     # Кыргызского и русского у Muse Voice Transcribe нет — для них речь слушает Muse Spark с аудио на входе.
     voice_audio_model: str = "muse-spark-1.2"
     voice_audio_langs: str = "ky,kk,ru"

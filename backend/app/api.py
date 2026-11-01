@@ -173,6 +173,8 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
                 "agent_steps_today": storage.get_counter("agent_steps:" + today_key()),
             },
             "voice_enabled": settings.live_enabled,
+            # Фронт не спрашивает демо-код, если сервер открыт для всех: судья не должен упираться в форму.
+            "key_required": not settings.open_access,
             "models": {
                 "vision": settings.sam_model,
                 "reader": settings.spark_model,
