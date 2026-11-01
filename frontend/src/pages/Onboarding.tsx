@@ -1,13 +1,14 @@
 // Онбординг: магазин (название и адрес) сохраняется на сервере и привязывается к коду устройства;
 // язык, валюта и тема — на устройстве и применяются сразу, чтобы человек видел результат выбора.
 
-import { ArrowRight, CircleAlert, MapPin } from 'lucide-react'
+import { ArrowRight, CircleAlert, MapPin, Sparkles } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { errorCode } from '../api/client'
 import { CURRENCIES, useSettings, type Currency, type Theme } from '../app/settings'
 import { useMode } from '../app/mode'
 import { useShops } from '../app/shops'
+import { useSampleWalk } from '../hooks/useSampleWalk'
 import { Button } from '../components/Button'
 import { Dropdown } from '../components/Dropdown'
 import { ChoiceRow, Field, Input } from '../components/Fields'
@@ -24,6 +25,7 @@ export function OnboardingPage() {
   const { settings, update } = useSettings()
   const { create } = useShops()
   const { setView } = useMode()
+  const sample = useSampleWalk()
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
@@ -131,6 +133,10 @@ export function OnboardingPage() {
 
         <Button type="submit" size="lg" block loading={saving} icon={<ArrowRight size={18} />} className="nudge" data-testid="onboarding-submit">
           {t('onboarding.done')}
+        </Button>
+        {/* Судья без своего магазина и фото: пример полки в одно нажатие, форму заполнять не нужно. */}
+        <Button type="button" size="lg" block variant="secondary" icon={<Sparkles size={18} />} onClick={() => void sample.run()} loading={sample.busy} data-testid="onboarding-sample">
+          {t('onboarding.trySample')}
         </Button>
         <AuthorLine />
       </form>

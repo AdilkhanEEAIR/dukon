@@ -306,10 +306,37 @@ def test_sample_walk_needs_no_code_and_is_cached(live_client, provider):
     r = live_client.post("/walks/sample", headers=dev)
     assert r.status_code == 201, r.text
     walk = r.json()
-    assert walk["label"].startswith("Пример") and walk["photos"][0]["shelves"]
+    assert walk["label"].startswith("Sample") and walk["photos"][0]["shelves"]
     assert walk["created_at"].startswith("2026-10-26T20:11:49"), "пример датирован съёмкой в Глобусе"
     calls = provider.calls
     again = live_client.post("/walks/sample", headers=dev).json()
     assert again["photos"][0]["photo_id"] == walk["photos"][0]["photo_id"]
     assert provider.calls == calls, "второй раз — из кэша, модели не зовём"
     assert live_client.get("/health").json()["live_calls_today"] == 1
+
+
+def test_sample_pair_gives_before_and_after_walks(live_settings, storage, provider, tmp_path, monkeypatch):
+    """Два снимка одной полки в samples/before и samples/after → судья сразу видит сравнение и потери."""
+    from fastapi.testclient import TestClient
+
+    from app import api as api_module
+    from app.api import create_app
+
+    samples = tmp_path / "samples"
+    (samples / "before").mkdir(parents=True)
+    (samples / "after").mkdir()
+    (samples / "before" / "a.jpg").write_bytes(make_jpeg(400, 300, (200, 30, 30)))
+    (samples / "after" / "b.jpg").write_bytes(make_jpeg(400, 300, (30, 200, 30)))
+    monkeypatch.setattr(api_module, "SAMPLES_DIR", samples)
+    with TestClient(create_app(live_settings, storage, provider)) as c:
+        c.headers["x-device-id"] = "judge-device-02"
+        walk = c.post("/walks/sample").json()
+        assert walk["label"] == "Sample · after"
+        walks = c.get("/walks", params={"source": "live"}).json()
+        assert sorted(w["label"] for w in walks) == ["Sample · after", "Sample · before"]
+        diff = c.get(f"/walks/{walk['id']}/diff").json()
+        assert diff["walk_before_id"] is not None and diff["walk_after_id"] == walk["id"]
+        # Без времени съёмки в файлах второй обход всё равно позже первого.
+        after = next(w for w in walks if w["label"] == "Sample · after")
+        before = next(w for w in walks if w["label"] == "Sample · before")
+        assert after["created_at"] > before["created_at"]

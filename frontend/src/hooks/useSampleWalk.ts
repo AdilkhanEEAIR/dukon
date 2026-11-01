@@ -1,5 +1,6 @@
 // «Попробовать на примере»: обход по настоящей полке из Бишкека, которая лежит на сервере.
 // Судье не нужны ни фото, ни код: первый разбор зовёт модели, дальше ответ из кэша — мгновенно и бесплатно.
+// Магазина ещё нет (судья пришёл с лендинга) — создаём образец сами: одна кнопка вместо формы онбординга.
 
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -17,7 +18,7 @@ export function useSampleWalk() {
   const toast = useToast()
   const { mode, setView, refresh } = useMode()
   const { deviceId } = useSettings()
-  const { current } = useShops()
+  const { current, shops, create } = useShops()
   const { reload } = useLatest()
   const [busy, setBusy] = useState(false)
 
@@ -25,12 +26,18 @@ export function useSampleWalk() {
     if (busy) return
     setBusy(true)
     try {
-      const walk = await api.sampleWalk({ shopId: current?.id, deviceId })
+      let shopId = current?.id
+      if (!shopId && !shops.length) {
+        const shop = await create(t('scan.sampleShopName'), t('scan.sampleShopAddress'))
+        shopId = shop.id
+      }
+      const walk = await api.sampleWalk({ shopId, deviceId })
       toast('success', t('scan.done'), t('scan.doneBody', { n: walk.photos.length }))
       if (mode === 'demo') setView('live')
       else void reload()
       void refresh()
-      navigate(`/app/shelves/${walk.id}/seen`)
+      // Пара «до/после» — сразу отчёт с потерями; один обход — то, что увидели модели.
+      navigate(walk.label.toLowerCase().includes('after') ? `/app/shelves/${walk.id}` : `/app/shelves/${walk.id}/seen`)
     } catch {
       toast('danger', t('scan.sampleFailed'))
       void refresh()

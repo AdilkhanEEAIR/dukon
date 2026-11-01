@@ -2,10 +2,11 @@
 // остальное спокойно: шаги с иконками, модели Meta, призыв открыть магазин, автор внизу.
 // Вторая кнопка зависит от режима: живой — «Как это работает» (слова «демо» нет), без моделей — «Посмотреть демо».
 
-import { ArrowDown, ArrowRight, Bot, Camera, Code, Coins, ScanSearch, Store } from 'lucide-react'
+import { ArrowRight, Bot, Camera, Code, Coins, ScanSearch, Sparkles, Store } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useMode } from '../app/mode'
 import { useShops } from '../app/shops'
+import { useSampleWalk } from '../hooks/useSampleWalk'
 import { Button } from '../components/Button'
 import { AuthorLine, LangSwitch, REPO_URL, ThemeToggle } from '../components/Nav'
 import { ShelfArt } from '../components/ShelfArt'
@@ -17,6 +18,7 @@ const STEP_ICONS = [Camera, ScanSearch, Coins, Bot]
 export function LandingPage() {
   const { t, list } = useI18n()
   const { shops } = useShops()
+  const sample = useSampleWalk()
   const { mode, status } = useMode()
   const steps = list<{ title: string; body: string }>('landing.steps')
   const models = list<{ name: string; role: string }>('landing.models')
@@ -50,11 +52,12 @@ export function LandingPage() {
                 {t('common.seeDemo')}
               </Button>
             ) : (
-              <Button size="lg" variant="secondary" icon={<ArrowDown size={18} />} onClick={() => document.getElementById('how')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
-                {t('landing.howItWorks')}
+              <Button size="lg" variant="secondary" icon={<Sparkles size={18} />} onClick={() => void sample.run()} loading={sample.busy} data-testid="landing-sample">
+                {t('landing.trySample')}
               </Button>
             )}
           </div>
+          {!demo && <p className="small">{t('landing.trySampleHint')}</p>}
           <p className="hero__foot">{t('landing.heroFootnote')}</p>
         </div>
         <div className="hero__visual">
