@@ -82,6 +82,8 @@ export const de: Dict = {
     heroBody:
       'Dukon zählt jedes Produkt auf deinen Handyfotos, vergleicht Rundgänge über die Zeit und macht aus Lücken Geld und Lieferantenbestellungen – ohne eine einzige deiner Regeln zu brechen.',
     heroFootnote: 'Gebaut mit Meta SAM 3.1 und Muse Spark für den Meta Global AI Developer Hackathon 2026.',
+    trySample: 'An einem echten Regal ausprobieren',
+    trySampleHint: 'Ein Tipp: ein echtes Regal aus Bischkek, zwei Rundgänge, die Verluste in Geld und der Agent bereit zum Bestellen. Ohne Fotos, ohne Anmeldung.',
     stepsTitle: 'Dreißig Sekunden, vier Schritte',
     steps: [
       { title: 'Den Gang abgehen', body: 'Mach 3–6 Fotos entlang der Regale mit jedem Handy. HEIC vom iPhone funktioniert.' },
@@ -116,6 +118,7 @@ export const de: Dict = {
     currency: 'Währung',
     theme: 'Darstellung',
     done: 'Laden öffnen',
+    trySample: 'Oder zuerst an einem Beispielregal ausprobieren',
   },
   theme: { light: 'Hell', dark: 'Dunkel', toggle: 'Design wechseln' },
   home: {
@@ -247,6 +250,12 @@ export const de: Dict = {
     lasts: 'Reicht etwa',
     loss: '[[Verlust]] pro Tag',
     priceTag: 'Preisschild',
+    noPriceTag: 'Kein Preisschild im Regal',
+    yourPrice: 'Ihr Preis',
+    setPrice: 'Preis in Som (kein Schild im Regal)',
+    savePrice: 'Preis speichern',
+    changePrice: 'Preis ändern',
+    priceSaved: 'Preis gespeichert – Verluste und Bestellungen rechnen jetzt damit',
     agentSuggests: 'Der Agent schlägt vor',
     order: '{n} bestellen',
     orderBody: 'Genug für zwei Wochen beim aktuellen Tempo.',
@@ -285,6 +294,8 @@ export const de: Dict = {
     sample: 'Mit einem Beispiel testen',
     sampleHint: 'Ein echtes Regal aus Bischkek — ohne eigene Fotos und ohne Code',
     sampleFailed: 'Das Beispiel ließ sich nicht öffnen — bitte erneut versuchen',
+    sampleShopName: 'Beispielladen · Bischkek',
+    sampleShopAddress: '2 Beyshenalieva Street, Bischkek, Kirgisistan',
     photoOf: 'Foto {i} von {n}',
     partial: '{done} von {n} Fotos verarbeitet — der Rest ist fehlgeschlagen',
     steps: ['Muse Spark sieht, was im Regal steht', 'SAM 3.1 findet jedes Produkt und Preisschild', 'Muse Spark liest Namen und Preise', 'Fertig'],

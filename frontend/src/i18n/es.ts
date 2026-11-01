@@ -82,6 +82,8 @@ export const es: Dict = {
     heroBody:
       'Dukon cuenta cada producto con fotos del móvil, compara recorridos en el tiempo y convierte los huecos en dinero y pedidos a proveedores, sin romper ninguna regla tuya.',
     heroFootnote: 'Construido con Meta SAM 3.1 y Muse Spark para el Meta Global AI Developer Hackathon 2026.',
+    trySample: 'Pruébalo en un estante real',
+    trySampleHint: 'Un toque: un estante real de Biskek, dos recorridos, las pérdidas en dinero y el agente listo para pedir. Sin fotos ni registro.',
     stepsTitle: 'Treinta segundos, cuatro pasos',
     steps: [
       { title: 'Recorre el pasillo', body: 'Haz 3–6 fotos a lo largo de los estantes con cualquier móvil. HEIC de iPhone funciona.' },
@@ -116,6 +118,7 @@ export const es: Dict = {
     currency: 'Moneda',
     theme: 'Apariencia',
     done: 'Abrir la tienda',
+    trySample: 'O pruébalo primero en un estante de ejemplo',
   },
   theme: { light: 'Claro', dark: 'Oscuro', toggle: 'Cambiar tema' },
   home: {
@@ -247,6 +250,12 @@ export const es: Dict = {
     lasts: 'Dura unos',
     loss: '[[Pérdida]] al día',
     priceTag: 'Etiqueta de precio',
+    noPriceTag: 'No hay etiqueta de precio en el estante',
+    yourPrice: 'Tu precio',
+    setPrice: 'Precio en som (sin etiqueta en el estante)',
+    savePrice: 'Guardar precio',
+    changePrice: 'Cambiar el precio',
+    priceSaved: 'Precio guardado: las pérdidas y los pedidos ya lo tienen en cuenta',
     agentSuggests: 'El agente sugiere',
     order: 'Pedir {n}',
     orderBody: 'Suficiente para dos semanas al ritmo actual.',
@@ -285,6 +294,8 @@ export const es: Dict = {
     sample: 'Probar con un ejemplo',
     sampleHint: 'Un estante real de Biskek — sin fotos propias ni código',
     sampleFailed: 'El ejemplo no se abrió — inténtelo de nuevo',
+    sampleShopName: 'Tienda de ejemplo · Biskek',
+    sampleShopAddress: '2 Beyshenalieva Street, Biskek, Kirguistán',
     photoOf: 'Foto {i} de {n}',
     partial: '{done} de {n} fotos procesadas — el resto falló',
     steps: ['Muse Spark mira qué hay en el estante', 'SAM 3.1 encuentra cada producto y etiqueta', 'Muse Spark lee nombres y precios', 'Listo'],

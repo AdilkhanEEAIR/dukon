@@ -82,6 +82,8 @@ export const fr: Dict = {
     heroBody:
       'Dukon compte chaque produit sur vos photos de téléphone, compare les passages dans le temps et transforme les manques en argent et en commandes fournisseurs — sans enfreindre une seule de vos règles.',
     heroFootnote: 'Construit avec Meta SAM 3.1 et Muse Spark pour le Meta Global AI Developer Hackathon 2026.',
+    trySample: 'Essayer sur un vrai rayon',
+    trySampleHint: 'Un geste : un vrai rayon de Bichkek, deux passages, les pertes en argent et l’agent prêt à commander. Sans photos ni inscription.',
     stepsTitle: 'Trente secondes, quatre étapes',
     steps: [
       { title: 'Parcourir l’allée', body: 'Prenez 3 à 6 photos le long des rayons avec n’importe quel téléphone. Le HEIC d’iPhone fonctionne.' },
@@ -116,6 +118,7 @@ export const fr: Dict = {
     currency: 'Devise',
     theme: 'Apparence',
     done: 'Ouvrir le commerce',
+    trySample: 'Ou essayer d’abord sur un rayon d’exemple',
   },
   theme: { light: 'Clair', dark: 'Sombre', toggle: 'Changer de thème' },
   home: {
@@ -247,6 +250,12 @@ export const fr: Dict = {
     lasts: 'Tient environ',
     loss: '[[Perte]] par jour',
     priceTag: 'Étiquette de prix',
+    noPriceTag: 'Pas d’étiquette de prix en rayon',
+    yourPrice: 'Votre prix',
+    setPrice: 'Prix en som (pas d’étiquette en rayon)',
+    savePrice: 'Enregistrer le prix',
+    changePrice: 'Modifier le prix',
+    priceSaved: 'Prix enregistré : les pertes et les commandes en tiennent compte',
     agentSuggests: 'L’agent suggère',
     order: 'Commander {n}',
     orderBody: 'Assez pour deux semaines au rythme actuel.',
@@ -285,6 +294,8 @@ export const fr: Dict = {
     sample: 'Essayer sur un exemple',
     sampleHint: 'Une vraie étagère de Bichkek — sans photos ni code',
     sampleFailed: 'L’exemple ne s’est pas ouvert — réessayez',
+    sampleShopName: 'Boutique d’exemple · Bichkek',
+    sampleShopAddress: '2 Beyshenalieva Street, Bichkek, Kirghizistan',
     photoOf: 'Photo {i} sur {n}',
     partial: '{done} photos sur {n} traitées — les autres ont échoué',
     steps: ['Muse Spark regarde ce qu’il y a sur l’étagère', 'SAM 3.1 trouve chaque produit et étiquette', 'Muse Spark lit les noms et les prix', 'Terminé'],

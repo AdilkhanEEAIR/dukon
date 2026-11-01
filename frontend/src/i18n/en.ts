@@ -86,6 +86,8 @@ export const en = {
     heroBody:
       'Dukon counts every product from your phone photos, compares walks over time and turns the gaps into money and supplier orders — without breaking a single rule you set.',
     heroFootnote: 'Built with Meta SAM 3.1 and Muse Spark for the Meta Global AI Developer Hackathon 2026.',
+    trySample: 'Try it on a real shelf',
+    trySampleHint: 'One tap: a real Bishkek shelf, two walks, the losses in money and the agent ready to order. No photos, no sign-up.',
     stepsTitle: 'Thirty seconds, four steps',
     steps: [
       { title: 'Walk the aisle', body: 'Take 3–6 photos along the shelves with any phone. HEIC from iPhone works.' },
@@ -120,6 +122,7 @@ export const en = {
     currency: 'Currency',
     theme: 'Appearance',
     done: 'Open the shop',
+    trySample: 'Or try it on a sample shelf first',
   },
   theme: { light: 'Light', dark: 'Dark', toggle: 'Switch theme' },
   home: {
@@ -251,6 +254,12 @@ export const en = {
     lasts: 'Lasts about',
     loss: '[[Loss]] per day',
     priceTag: 'Price tag',
+    noPriceTag: 'No price tag on the shelf',
+    yourPrice: 'Your price',
+    setPrice: 'Price in som (no tag on the shelf)',
+    savePrice: 'Save price',
+    changePrice: 'Change the price',
+    priceSaved: 'Price saved — losses and orders now count it',
     agentSuggests: 'Agent suggests',
     order: 'Order {n}',
     orderBody: 'Enough for two weeks at the current pace.',
@@ -289,6 +298,8 @@ export const en = {
     sample: 'Try on a sample',
     sampleHint: 'A real Bishkek shelf — no photos, no code needed',
     sampleFailed: 'The sample did not open — try again',
+    sampleShopName: 'Sample shop · Bishkek',
+    sampleShopAddress: '2 Beyshenalieva Street, Bishkek, Kyrgyzstan',
     photoOf: 'Photo {i} of {n}',
     partial: '{done} of {n} photos processed — the rest failed',
     steps: ['Muse Spark looks at what is on the shelf', 'SAM 3.1 finds every product and price tag', 'Muse Spark reads names and prices', 'Done'],
