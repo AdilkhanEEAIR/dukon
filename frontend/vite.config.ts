@@ -29,6 +29,7 @@ export default defineConfig({
     globals: true,
     setupFiles: './src/test/setup.ts',
     css: false,
-    testTimeout: 10_000,
+    // Прогон агента читается по одному событию с паузами: на загруженной машине 10 с не хватало.
+    testTimeout: 20_000,
   },
 })

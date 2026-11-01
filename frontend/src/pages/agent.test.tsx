@@ -195,9 +195,10 @@ describe('Агент офлайн', () => {
       }),
     )
     renderAt('/app/agent')
-    await userEvent.click(await screen.findByTestId('run-agent', {}, { timeout: 10_000 }))
-    const feed = await screen.findByTestId('run-feed', {}, { timeout: 10_000 })
-    const result = await screen.findByTestId('run-result', {}, { timeout: 10_000 })
+    // На загруженной машине офлайн-прогон (снимок + показ событий по одному) не укладывался в 10 с.
+    await userEvent.click(await screen.findByTestId('run-agent', {}, { timeout: 15_000 }))
+    const feed = await screen.findByTestId('run-feed', {}, { timeout: 15_000 })
+    const result = await screen.findByTestId('run-result', {}, { timeout: 18_000 })
     expect(within(feed).getAllByTestId('event-verifier_block')).toHaveLength(2)
     expect(result).toHaveTextContent('Записанный демо-прогон')
     await userEvent.click(within(result).getByTestId('approve-all'))

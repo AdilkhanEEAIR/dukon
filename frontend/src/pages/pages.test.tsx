@@ -38,11 +38,32 @@ describe('Лендинг', () => {
     expect(screen.getByText(/Walk the shelves/)).toBeInTheDocument()
     expect(screen.getByTestId('shelf-art')).toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByRole('link', { name: /Open the app/ })[0]).toHaveAttribute('href', '/app/onboarding'))
-    // живой сервер: вторая кнопка — «Как это работает», слова «демо» на первом экране нет
-    expect(screen.getByRole('button', { name: /How it works/ })).toBeInTheDocument()
+    // живой сервер: вторая кнопка — «Попробовать на настоящей полке», слова «демо» на первом экране нет
+    expect(screen.getByTestId('landing-sample')).toHaveTextContent('Try it on a real shelf')
     expect(screen.queryByText(/See the demo/)).not.toBeInTheDocument()
     const footer = screen.getByTestId('landing-footer')
     expect(within(footer).getByRole('link', { name: 'Made by Adilkhan' })).toHaveAttribute('href', 'https://github.com/AdilkhanEEAIR/dukon')
+  })
+
+  it('«Попробовать на настоящей полке» без магазина: сам создаёт магазин-пример и открывает отчёт пары обходов', async () => {
+    const after = { ...walk, id: 'live-after', source: 'live' as const, shop_id: 'shop-new', label: 'Sample · after' }
+    const fn = mockFetch({
+      ...noShopsLive,
+      '/walks/sample': () => jsonResponse(after, 201),
+      '/walks/live-after': () => jsonResponse(after),
+      '/walks/live-after/diff': () => jsonResponse(diff),
+      '/walks?source=live&shop_id=shop-new': () => jsonResponse([after]),
+      '/branches/overview?scope=mine': () => jsonResponse([]),
+    })
+    renderAt('/')
+    await userEvent.click(await screen.findByTestId('landing-sample'))
+    expect(await screen.findByTestId('shelves', {}, { timeout: 5000 })).toBeInTheDocument()
+    const calls = fn.mock.calls as [string, RequestInit][]
+    const shop = calls.find(([u, i]) => u.endsWith('/shops') && i?.method === 'POST')!
+    expect(JSON.parse(String(shop[1].body))).toMatchObject({ name: 'Sample shop · Bishkek' })
+    const sample = calls.find(([u]) => u.includes('/walks/sample'))!
+    expect(sample[0]).toContain('shop_id=shop-new')
+    expect(sample[1].method).toBe('POST')
   })
 
   it('с магазином кнопка ведёт в приложение', async () => {
@@ -87,6 +108,7 @@ describe('Онбординг', () => {
     const fn = mockFetch(noShopsLive)
     renderAt('/app')
     const form = await screen.findByTestId('onboarding')
+    expect(within(form).getByTestId('onboarding-sample')).toHaveTextContent('Or try it on a sample shelf first')
     expect(screen.getByPlaceholderText('e.g. Shop on Chuy')).toBeInTheDocument()
     expect(screen.getByText('Enter your shop name the way customers know it.')).toBeInTheDocument()
     await userEvent.click(within(form).getByTestId('onboarding-submit'))
@@ -205,13 +227,15 @@ describe('Главная', () => {
     expect(screen.getByTestId('data-switch')).toHaveAttribute('data-state', 'live')
   })
 
-  it('живой счётчик потерь за сегодня тикает на барабанах', async () => {
-    mockFetch(ownRoutes)
+  it('живой счётчик потерь за сегодня тикает на барабанах, без лишних знаков после запятой', async () => {
+    // Крупные потери, чтобы счётчик в целых сомах заметно менялся за секунды теста.
+    mockFetch({ ...ownRoutes, '/walks/live-1/diff': () => jsonResponse({ ...diff, loss_per_day: 400_000 }) })
     renderAt('/app')
     const meter = await screen.findByTestId('loss-meter')
     expect(meter).toHaveTextContent('Сегодня уже потеряно')
     expect(within(meter).getByText('потеряно')).toHaveClass('loss-word')
-    const first = screen.getByTestId('loss-meter-value').textContent
+    const first = screen.getByTestId('loss-meter-value').textContent!
+    expect(first).not.toMatch(/[.,]\d{3}/)
     await waitFor(() => expect(screen.getByTestId('loss-meter-value').textContent).not.toBe(first), { timeout: 2500 })
   })
 
@@ -263,6 +287,33 @@ describe('Полки и товар', () => {
     expect(within(drawer).getByTestId('forecast-caption')).toHaveTextContent('Уже закончился')
     await userEvent.click(within(drawer).getByTestId('to-draft'))
     expect(await screen.findByRole('status')).toHaveTextContent(/черновик/i)
+  })
+
+  it('без ценника: хозяин вводит цену, она уходит на сервер, отчёт перечитывается', async () => {
+    const noTag = { ...diff, changes: diff.changes.map((c) => (c.sku === 'coca cola 1 л' ? { ...c, price_before: null, price_after: null, price_owner: null } : c)) }
+    let saved: { sku: string; price: number } | null = null
+    const fn = mockFetch({
+      ...happyRoutes,
+      '/walks/demo-tue/diff': () => jsonResponse(noTag),
+      '/prices?shop_id=demo-chuy': (init) => {
+        saved = JSON.parse(String(init?.body)) as { sku: string; price: number }
+        return jsonResponse(saved)
+      },
+    })
+    renderAt('/app/shelves')
+    await userEvent.click(within(await screen.findByTestId('changes-list')).getByText('Coca-Cola 1 л'))
+    const drawer = await screen.findByTestId('drawer')
+    expect(drawer).toHaveTextContent('На полке нет ценника')
+    const input = within(drawer).getByTestId('price-input')
+    await userEvent.clear(input)
+    await userEvent.type(input, '95')
+    await userEvent.click(within(drawer).getByTestId('price-save'))
+    expect(await screen.findByText(/Цена сохранена/)).toBeInTheDocument()
+    expect(saved).toEqual({ sku: 'coca cola 1 л', price: 95 })
+    const put = (fn.mock.calls as [string, RequestInit][]).find(([u, i]) => u.includes('/prices') && i?.method === 'PUT')!
+    expect((put[1].headers as Record<string, string>)['x-device-id']).toBeTruthy()
+    // После сохранения отчёт запрошен заново.
+    expect((fn.mock.calls as [string][]).filter(([u]) => u.includes('/walks/demo-tue/diff')).length).toBeGreaterThanOrEqual(2)
   })
 
   it('обход по id: история того же магазина', async () => {
