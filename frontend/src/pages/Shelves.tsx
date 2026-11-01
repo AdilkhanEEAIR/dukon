@@ -1,12 +1,13 @@
 // Полки: список обходов и отчёт выбранного. Товар открывается в шторке (телефон) / панели (ПК).
 
-import { ArrowLeftRight, Images, Package, RefreshCw, ScanLine, Wallet } from 'lucide-react'
+import { ArrowLeftRight, Images, Package, RefreshCw, ScanLine, Sparkles, Wallet } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../api/client'
 import type { ItemChange, Status, Walk, WalkDiff } from '../api/types'
 import { useLatest } from '../app/data'
+import { useSampleWalk } from '../hooks/useSampleWalk'
 import { Button } from '../components/Button'
 import { CountUp } from '../components/CountUp'
 import { Drawer } from '../components/Drawer'
@@ -85,7 +86,7 @@ export function ShelvesPage() {
       ) : state.status === 'error' ? (
         <ErrorState error={state.error} onRetry={() => void refetch()} secondary={<Button variant="secondary" to="/app">{t('common.home')}</Button>} />
       ) : state.data === null ? (
-        <EmptyState icon={ScanLine} title={t('shelves.nothingToCompare')} text={t('shelves.nothingToCompareBody')} action={<Button to="/app/scan">{t('shelves.startWalk')}</Button>} />
+        <EmptyState icon={ScanLine} title={t('shelves.nothingToCompare')} text={t('shelves.nothingToCompareBody')} action={<FirstWalkActions />} />
       ) : state.data.walk.photos.every((p) => p.shelves.every((s) => s.items.length === 0)) ? (
         // Честное «ничего не распознано»: раньше тут было «всё в порядке», хотя модель просто не нашла товаров.
         <EmptyState icon={ScanLine} title={t('shelves.nothingRecognized')} text={t('shelves.nothingRecognizedBody')} action={<Button to="/app/scan">{t('shelves.startWalk')}</Button>} tone="out" />
@@ -249,6 +250,22 @@ function ReportBody({ report }: { report: Report }) {
       <Drawer open={open !== null} onClose={close} label={open ? product(open.name) : ''}>
         {open && <ItemDetail change={open} history={countHistory(walks, open.sku)} />}
       </Drawer>
+    </div>
+  )
+}
+
+/** Пустой магазин: кроме своего обхода — пример в одно нажатие. Судья без фото под рукой сразу видит работу моделей. */
+function FirstWalkActions() {
+  const { t } = useI18n()
+  const sample = useSampleWalk()
+  return (
+    <div className="row row--wrap" style={{ gap: 8, justifyContent: 'center' }}>
+      <Button to="/app/scan" icon={<ScanLine size={16} />}>
+        {t('shelves.startWalk')}
+      </Button>
+      <Button variant="secondary" onClick={() => void sample.run()} loading={sample.busy} icon={<Sparkles size={16} />} data-testid="empty-sample-walk">
+        {t('scan.sample')}
+      </Button>
     </div>
   )
 }
