@@ -58,7 +58,9 @@ export function useVoice(onText: (text: string) => void, keywords: string[] = []
   }, [onText])
 
   // Серверный голос — только когда всё живое: ключ есть, сервер отвечает, показываем свои данные.
-  const metaReady = !!health?.voice_enabled && liveReady && mode === 'live' && !!settings.demoKey && canRecord()
+  // Код не нужен, если сервер открыт для всех: судья просто нажимает микрофон.
+  const hasAccess = !!settings.demoKey || health?.key_required === false
+  const metaReady = !!health?.voice_enabled && liveReady && mode === 'live' && hasAccess && canRecord()
   // Браузер берём, когда он знает язык и это русский (там он лучше модели) или когда сервера нет.
   const browserOk = canRecognizeLocale(locale)
   const preferBrowser = locale === 'ru' && browserOk

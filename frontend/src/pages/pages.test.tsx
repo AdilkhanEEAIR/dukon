@@ -412,6 +412,18 @@ describe('Обход', () => {
     expect(screen.queryByTestId('thumbs')).not.toBeInTheDocument()
   })
 
+  it('открытый сервер: поля демо-кода нет; закрытый — есть', async () => {
+    mockFetch({ ...liveRoutes, '/health': () => jsonResponse({ ...health, key_required: false }) })
+    const view = renderAt('/app/scan')
+    await screen.findByTestId('submit')
+    await waitFor(() => expect(document.getElementById('demo-key')).toBeNull())
+    view.unmount()
+    mockFetch(liveRoutes)
+    renderAt('/app/scan')
+    await screen.findByTestId('submit')
+    expect(document.getElementById('demo-key')).not.toBeNull()
+  })
+
   it('демо-режим на сервере → предупреждение, кнопка заблокирована', async () => {
     mockFetch({ ...happyRoutes, '/health': () => jsonResponse(demoHealth) })
     renderAt('/app/scan')

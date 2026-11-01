@@ -163,6 +163,25 @@ describe('Агент: прогон и утверждение', () => {
     await userEvent.click(screen.getByTestId('key-save'))
     await waitFor(() => expect(JSON.parse(localStorage.getItem('dukon.settings')!).demoKey).toBe('dukon-judge'))
   })
+
+  it('сервер открыт для всех: без кода прогон сразу уходит на сервер, формы кода нет', async () => {
+    seedSettings({ motion: 'calm', dataMode: 'live' }, { currentShop: 'shop-1' })
+    const liveWalk = { id: 'live-9', created_at: '2026-10-28T02:12:00Z', label: 'x', source: 'live', shop_id: 'shop-1', photos: [] }
+    const fn = mockFetch({
+      ...happyRoutes,
+      '/health': () => jsonResponse({ status: 'ok', version: '0', provider: 'meta', live_enabled: true, mode: 'live', reason: null, live_calls_today: 0, live_calls_per_day_total: 60, budget: { calls_today: 0, calls_limit: 60, calls_left: 60, est_spend_usd: 0, errors_today: 0, last_error: null }, voice_enabled: true, key_required: false }),
+      '/walks?source=live&shop_id=shop-1': () => jsonResponse([liveWalk]),
+      '/walks/live-9/diff': () => happyRoutes['/walks/demo-tue/diff'](),
+      '/walks/live-9': () => jsonResponse(liveWalk),
+      '/rules?shop_id=shop-1': () => jsonResponse(rules),
+      '/orders?shop_id=shop-1&walk_id=live-9': () => jsonResponse([]),
+      '/agent/run?walk_id=live-9': () => jsonResponse({ ...agentRun, status: 'running', events: [], result: null }, 201),
+    })
+    renderAt('/app/agent')
+    await userEvent.click(await screen.findByTestId('run-agent'))
+    await waitFor(() => expect((fn.mock.calls as [string][]).some(([u]) => u.includes('/agent/run?walk_id=live-9'))).toBe(true))
+    expect(screen.queryByTestId('key-input')).toBeNull()
+  })
 })
 
 describe('Агент офлайн', () => {

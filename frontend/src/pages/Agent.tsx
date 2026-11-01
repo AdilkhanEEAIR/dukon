@@ -39,7 +39,7 @@ export function AgentPage() {
   const { t, rich, locale } = useI18n()
   const { latest } = useLatest()
   const { settings, update, deviceId, resolvedMotion } = useSettings()
-  const { mode, liveReady } = useMode()
+  const { mode, liveReady, health } = useMode()
   const shop = useViewShop()
   const toast = useToast()
   const walk = latest.status === 'success' ? latest.data?.walk : undefined
@@ -141,7 +141,8 @@ export function AgentPage() {
 
   const startRun = useCallback(async () => {
     if (!walk || running) return
-    if (mode === 'live' && liveReady && !settings.demoKey) {
+    // Сервер открыт для всех — не останавливаем судью формой с кодом.
+    if (mode === 'live' && liveReady && !settings.demoKey && health?.key_required !== false) {
       setNeedKey(true)
       return
     }
@@ -176,7 +177,7 @@ export function AgentPage() {
     } finally {
       setRunning(false)
     }
-  }, [walk, running, mode, liveReady, settings.demoKey, locale, dev, push, schedule, say, toast, t])
+  }, [walk, running, mode, liveReady, health?.key_required, settings.demoKey, locale, dev, push, schedule, say, toast, t])
 
   // ---- разговор
   const send = useCallback(

@@ -193,9 +193,12 @@ export function ScanPage() {
             </div>
           )}
 
-          <Field label={t('scan.demoKey')} hint={t('scan.demoKeyHint')} htmlFor="demo-key">
-            <Input id="demo-key" value={demoKey} onChange={(e) => setDemoKey(e.target.value)} autoComplete="off" />
-          </Field>
+          {/* Открытый сервер — поле кода только мешает: судья не знает, что туда вписать. */}
+          {health?.key_required !== false && (
+            <Field label={t('scan.demoKey')} hint={t('scan.demoKeyHint')} htmlFor="demo-key">
+              <Input id="demo-key" value={demoKey} onChange={(e) => setDemoKey(e.target.value)} autoComplete="off" />
+            </Field>
+          )}
 
           {error !== null && <InlineError error={error} onRetry={submit} />}
 

@@ -153,6 +153,8 @@ export interface Health {
   budget: Budget
   /** Голос работает только с ключом моделей: без него кнопка микрофона использует распознавание браузера. */
   voice_enabled?: boolean
+  /** false — сервер открыт для всех (судьи): демо-код не спрашиваем. Нет поля — старый сервер, код нужен. */
+  key_required?: boolean
   models?: { vision: string; reader: string; agent: string; voice: string }
 }
 
