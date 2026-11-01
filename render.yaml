@@ -1,0 +1,39 @@
+# Сервер Dukon на Render: один веб-сервис из папки backend.
+# Секреты (ключ Meta, демо-код, WhatsApp) задаются в панели Render — sync: false,
+# чтобы они никогда не попали в репозиторий.
+services:
+  - type: web
+    name: dukon-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # Render сам выдаёт порт в $PORT; 0.0.0.0 — чтобы сервис был виден снаружи контейнера.
+    startCommand: uvicorn app.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: PROVIDER
+        value: meta
+      # За прокси Render настоящий адрес клиента — последний в X-Forwarded-For.
+      - key: TRUST_FORWARDED_FOR
+        value: "true"
+      - key: MODEL_API_KEY
+        sync: false
+      - key: DEMO_KEY
+        sync: false
+      - key: PHOTO_URL_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
