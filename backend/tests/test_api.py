@@ -345,3 +345,23 @@ def test_sample_pair_gives_before_and_after_walks(live_settings, storage, provid
         # Обходы разведены на смену — скорость продаж считается, а не оценивается
         gap = datetime.fromisoformat(after["created_at"]) - datetime.fromisoformat(before["created_at"])
         assert gap >= timedelta(hours=6)
+        # Повторный клик (или ретрай после долгого первого разбора) не плодит вторую пару
+        again = c.post("/walks/sample").json()
+        assert again["id"] == walk["id"]
+        assert len(c.get("/walks", params={"source": "live"}).json()) == 2
+
+
+def test_sample_times_are_afternoon_and_evening_in_the_past():
+    """Пример всегда в прошлом: днём 13:38 и вечером 20:58 по Бишкеку, при любом часе визита судьи."""
+    from datetime import timezone
+
+    from app.api import sample_times
+
+    bishkek = timezone(timedelta(hours=6))
+    for hour in (0, 9, 15, 21, 23):
+        now = datetime(2026, 11, 3, hour, 5, tzinfo=bishkek)
+        before, after = sample_times(now, 6)
+        assert before < after <= now
+        assert after.astimezone(bishkek).strftime("%H:%M") == "20:58"
+        assert before.astimezone(bishkek).strftime("%H:%M") == "13:38"
+        assert after.astimezone(bishkek).date() == before.astimezone(bishkek).date()

@@ -57,8 +57,21 @@ log = logging.getLogger("dukon.api")
 MAX_PHOTOS_PER_WALK = 12
 # Настоящие фото полки для кнопки «Попробовать на примере».
 SAMPLES_DIR = Path(__file__).resolve().parents[1] / "samples"
-# Между обходами примера — рабочая смена магазина у дома: с утра до вечера.
-SAMPLE_GAP = timedelta(hours=9)
+# Пример — два обхода одного дня: днём и вечером по местному времени магазина (часы, минуты).
+SAMPLE_BEFORE_AT = (13, 38)
+SAMPLE_AFTER_AT = (20, 58)
+
+
+def sample_times(now: datetime, tz_offset_hours: int) -> tuple[datetime, datetime]:
+    """Последний прошедший «вечерний» обход и «дневной» того же дня — оба в прошлом при любом часе визита."""
+    local = now.astimezone(timezone(timedelta(hours=tz_offset_hours)))
+    after = local.replace(hour=SAMPLE_AFTER_AT[0], minute=SAMPLE_AFTER_AT[1], second=0, microsecond=0)
+    if after > local:
+        after -= timedelta(days=1)
+    before = after.replace(hour=SAMPLE_BEFORE_AT[0], minute=SAMPLE_BEFORE_AT[1])
+    return before.astimezone(timezone.utc), after.astimezone(timezone.utc)
+
+
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 # Больше 20 точек у магазина у дома не бывает; лимит защищает базу от мусора с одного устройства.
 MAX_SHOPS_PER_DEVICE = 20
@@ -414,6 +427,29 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         storage.save_walk(walk)
         return with_urls(walk)
 
+    sample_locks: dict[str, asyncio.Lock] = {}
+
+    async def sample_walk_from(
+        files: list[Path], label: str, known: list[str], shop_id: str | None, owner: str
+    ) -> Walk:
+        walk = Walk(id="live-" + uuid.uuid4().hex[:10], label=label, source="live", shop_id=shop_id, owner=owner)
+        chosen = files[:MAX_PHOTOS_PER_WALK]
+        uploads = [UploadFile(file=io.BytesIO(p.read_bytes()), filename=p.name) for p in chosen]
+        await ingest(walk, uploads, known)
+        date_walk(walk)
+        return walk
+
+    async def sample_pair(before: list[Path], after: list[Path], shop_id: str | None, owner: str) -> Walk:
+        """Дневной и вечерний обход одного дня: скорость продаж считается, а не оценивается (больше 6 часов)."""
+        before_at, after_at = sample_times(datetime.now(timezone.utc), settings.photo_tz_offset_hours)
+        first = await sample_walk_from(before, "Sample · before", [], shop_id, owner)
+        first.created_at = before_at
+        storage.save_walk(first)
+        second = await sample_walk_from(after, "Sample · after", [i.name for i in first.items], shop_id, owner)
+        second.created_at = after_at
+        storage.save_walk(second)
+        return second
+
     @app.post("/walks/sample", response_model=Walk, status_code=201)
     async def sample_walk(
         request: Request,
@@ -436,29 +472,18 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
         owner = device_id(x_device_id)
         if shop_id and storage.get_shop(shop_id, owner) is None:
             raise HTTPException(404, detail={"code": "shop_not_found", "message": "Магазин не найден"})
+        if before and after:
+            # Пара уже есть у этого магазина — отдаём её: повторный клик или ретрай после долгого первого
+            # разбора не должен плодить вторую пару, иначе отчёт сравнит «вечер» с «вечером» и покажет ноль.
+            async with sample_locks.setdefault(owner, asyncio.Lock()):
+                ready = [w for w in storage.list_walks(shop_id=shop_id, owner=owner) if w.label == "Sample · after"]
+                if ready:
+                    return with_urls(max(ready, key=lambda w: w.created_at))
+                guard_live(request, settings, storage, limiter, require_key=False)
+                return with_urls(await sample_pair(before, after, shop_id, owner))
         guard_live(request, settings, storage, limiter, require_key=False)
 
-        async def sample(files: list[Path], label: str, known: list[str]) -> Walk:
-            walk = Walk(id="live-" + uuid.uuid4().hex[:10], label=label, source="live", shop_id=shop_id, owner=owner)
-            chosen = files[:MAX_PHOTOS_PER_WALK]
-            uploads = [UploadFile(file=io.BytesIO(p.read_bytes()), filename=p.name) for p in chosen]
-            await ingest(walk, uploads, known)
-            date_walk(walk)
-            return walk
-
-        if before and after:
-            first = await sample(before, "Sample · before", [])
-            # Пример — это сценарий «утренний и вечерний обход одного дня»: разводим обходы на рабочую смену,
-            # чтобы скорость продаж считалась по-настоящему, а не падала в режим «оценка» (меньше 6 часов).
-            now = datetime.now(timezone.utc)
-            first.created_at = now - SAMPLE_GAP
-            storage.save_walk(first)
-            second = await sample(after, "Sample · after", [i.name for i in first.items])
-            second.created_at = now
-            storage.save_walk(second)
-            return with_urls(second)
-
-        walk = await sample(single[:1], "Sample · Bishkek", [])
+        walk = await sample_walk_from(single[:1], "Sample · Bishkek", [], shop_id, owner)
         storage.save_walk(walk)
         return with_urls(walk)
 
