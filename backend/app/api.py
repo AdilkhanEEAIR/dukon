@@ -57,6 +57,8 @@ log = logging.getLogger("dukon.api")
 MAX_PHOTOS_PER_WALK = 12
 # Настоящие фото полки для кнопки «Попробовать на примере».
 SAMPLES_DIR = Path(__file__).resolve().parents[1] / "samples"
+# Между обходами примера — рабочая смена магазина у дома: с утра до вечера.
+SAMPLE_GAP = timedelta(hours=9)
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 # Больше 20 точек у магазина у дома не бывает; лимит защищает базу от мусора с одного устройства.
 MAX_SHOPS_PER_DEVICE = 20
@@ -446,11 +448,13 @@ def create_app(settings: Settings | None = None, storage: Storage | None = None,
 
         if before and after:
             first = await sample(before, "Sample · before", [])
+            # Пример — это сценарий «утренний и вечерний обход одного дня»: разводим обходы на рабочую смену,
+            # чтобы скорость продаж считалась по-настоящему, а не падала в режим «оценка» (меньше 6 часов).
+            now = datetime.now(timezone.utc)
+            first.created_at = now - SAMPLE_GAP
             storage.save_walk(first)
             second = await sample(after, "Sample · after", [i.name for i in first.items])
-            # Время берётся из самих фото; если его нет, второй обход не должен оказаться раньше первого.
-            if second.created_at <= first.created_at:
-                second.created_at = first.created_at + timedelta(minutes=1)
+            second.created_at = now
             storage.save_walk(second)
             return with_urls(second)
 

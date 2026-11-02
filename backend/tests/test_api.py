@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from app.domain.schemas import PhotoAnalysis
 from app.models.base import SparkReading
 from app.pipeline.images import sha256
@@ -307,12 +309,12 @@ def test_sample_walk_needs_no_code_and_is_cached(live_client, provider):
     assert r.status_code == 201, r.text
     walk = r.json()
     assert walk["label"].startswith("Sample") and walk["photos"][0]["shelves"]
-    assert walk["created_at"].startswith("2026-10-26T20:11:49"), "пример датирован съёмкой в Глобусе"
     calls = provider.calls
     again = live_client.post("/walks/sample", headers=dev).json()
     assert again["photos"][0]["photo_id"] == walk["photos"][0]["photo_id"]
     assert provider.calls == calls, "второй раз — из кэша, модели не зовём"
-    assert live_client.get("/health").json()["live_calls_today"] == 1
+    # Пара «до/после» — два снимка, по живому разбору на каждый; повтор из кэша бюджет не трогает
+    assert live_client.get("/health").json()["live_calls_today"] == 2
 
 
 def test_sample_pair_gives_before_and_after_walks(live_settings, storage, provider, tmp_path, monkeypatch):
@@ -340,3 +342,6 @@ def test_sample_pair_gives_before_and_after_walks(live_settings, storage, provid
         after = next(w for w in walks if w["label"] == "Sample · after")
         before = next(w for w in walks if w["label"] == "Sample · before")
         assert after["created_at"] > before["created_at"]
+        # Обходы разведены на смену — скорость продаж считается, а не оценивается
+        gap = datetime.fromisoformat(after["created_at"]) - datetime.fromisoformat(before["created_at"])
+        assert gap >= timedelta(hours=6)
