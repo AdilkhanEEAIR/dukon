@@ -45,23 +45,30 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { id: shopId } = useViewShop()
   const [latest, setLatest] = useState<LatestState>({ status: 'idle' })
   const runId = useRef(0)
+  // reload живёт дольше рендера: его держат в замыкании долгие операции (пример идёт ~30 с, за это время
+  // успевает появиться магазин). Берём режим и магазин на момент вызова, а не на момент создания функции —
+  // иначе запоздалый reload со старым «магазина нет» перетирает свежие обходы пустым экраном.
+  const params = useRef({ mode, shopId })
+  useEffect(() => {
+    params.current = { mode, shopId }
+  }, [mode, shopId])
 
   const reload = useCallback(async () => {
     const id = ++runId.current
     setLatest({ status: 'loading' })
     try {
-      const data = await loadLatest(mode, shopId)
+      const data = await loadLatest(params.current.mode, params.current.shopId)
       if (id === runId.current) setLatest({ status: 'success', data })
     } catch (error) {
       if (id === runId.current) setLatest({ status: 'error', error })
     }
-  }, [mode, shopId])
+  }, [])
 
   // Ждём, пока станет ясно, какой режим и какой магазин: иначе сначала мелькнёт одно, через секунду — другое.
   const settled = modeStatus !== 'loading' && (mode === 'demo' || shopsStatus !== 'loading')
   useEffect(() => {
     if (settled) void reload()
-  }, [reload, settled])
+  }, [reload, settled, mode, shopId])
 
   const value = useMemo(() => ({ latest, reload }), [latest, reload])
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
