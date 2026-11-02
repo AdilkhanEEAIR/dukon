@@ -359,10 +359,8 @@ describe('Полки и товар', () => {
     renderAt('/app/shelves/demo-tue/seen')
     const page = await screen.findByTestId('seen')
     expect(await within(page).findByText(/Muse Spark искал: шоколадные батончики/)).toBeInTheDocument()
-    const svg = within(page).getByTestId('seen-boxes')
-    expect(svg.querySelectorAll('rect.box--ok')).toHaveLength(1)
-    expect(svg.querySelectorAll('rect.box--review')).toHaveLength(1)
-    expect(svg.querySelectorAll('rect.box--tag')).toHaveLength(1)
+    // Рамок поверх снимка нет — только фото и список с количеством
+    expect(within(page).queryByTestId('seen-boxes')).toBeNull()
     const items = within(page).getAllByTestId('seen-item')
     expect(items).toHaveLength(2)
     expect(items[1]).toHaveTextContent('проверьте')

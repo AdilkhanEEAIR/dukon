@@ -7,7 +7,7 @@ import { ArrowLeftRight, ArrowRight, Home, ImageOff, ScanLine } from 'lucide-rea
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../api/client'
-import type { PhotoAnalysis, ShelfItem, Walk, WalkDiff } from '../api/types'
+import type { PhotoAnalysis, Walk, WalkDiff } from '../api/types'
 import { Button, IconButton } from '../components/Button'
 import { Money } from '../components/Money'
 import { PageActions } from '../components/Nav'
@@ -78,7 +78,6 @@ function SeenBody({ walk, diff, locale }: Seen & { locale: ReturnType<typeof use
       {walk.photos.map((photo, i) => (
         <PhotoCard key={photo.photo_id} photo={photo} index={i} total={walk.photos.length} locale={locale} />
       ))}
-      <p className="small">{t('seen.legend')}</p>
 
       {first ? (
         <Notice tone="ok" title={t('seen.firstTitle')} text={t('seen.firstBody')} action={<Button to="/app" icon={<Home size={16} />}>{t('seen.home')}</Button>} />
@@ -93,7 +92,6 @@ function SeenBody({ walk, diff, locale }: Seen & { locale: ReturnType<typeof use
 
 function PhotoCard({ photo, index, total, locale }: { photo: PhotoAnalysis; index: number; total: number; locale: ReturnType<typeof useI18n>['locale'] }) {
   const { t } = useI18n()
-  const [selected, setSelected] = useState<string | null>(null)
   const items = photo.shelves.flatMap((s) => s.items)
   const when = photo.taken_at ? formatWhen(photo.taken_at, locale) : null
   const labels = (photo.concepts ?? []).map((c) => c.label || c.query).join(', ')
@@ -116,7 +114,7 @@ function PhotoCard({ photo, index, total, locale }: { photo: PhotoAnalysis; inde
       </header>
 
       <div className="seen-card__body">
-        <PhotoWithBoxes photo={photo} items={items} selected={selected} onSelect={setSelected} />
+        <ShelfPhoto photo={photo} />
         <div className="stack" style={{ gap: 6 }}>
           {photo.evidence === 'model_count' && <Notice title={t('seen.countedByModel')} />}
           {items.length === 0 ? (
@@ -124,7 +122,7 @@ function PhotoCard({ photo, index, total, locale }: { photo: PhotoAnalysis; inde
           ) : (
             <ul className="seen-list" data-testid="seen-list">
               {items.map((item) => (
-                <li key={item.sku + item.name} className={`seen-item${selected === item.sku ? ' is-selected' : ''}`} onMouseEnter={() => setSelected(item.sku)} onMouseLeave={() => setSelected(null)} data-testid="seen-item">
+                <li key={item.sku + item.name} className="seen-item" data-testid="seen-item">
                   <ProductIcon name={item.name} size={34} />
                   <span className="stack stack--tight grow" style={{ minWidth: 0 }}>
                     <span className="truncate" style={{ fontWeight: 600 }}>{productName(item.name, locale)}</span>
@@ -154,8 +152,9 @@ function PhotoCard({ photo, index, total, locale }: { photo: PhotoAnalysis; inde
   )
 }
 
-/** Фото с рамками: SVG с тем же viewBox, что размер снимка, — рамки масштабируются вместе с картинкой. */
-function PhotoWithBoxes({ photo, items, selected, onSelect }: { photo: PhotoAnalysis; items: ShelfItem[]; selected: string | null; onSelect: (sku: string | null) => void }) {
+/** Фото полки без рамок: модель часто не видит нижний слой в коробке, и рамки поверх снимка выглядят
+ *  как недосчёт. Хозяину важны цифры справа, а снимок — подтверждение, что это та самая полка. */
+function ShelfPhoto({ photo }: { photo: PhotoAnalysis }) {
   const { t } = useI18n()
   const [missing, setMissing] = useState(false)
   if (missing) {
@@ -166,31 +165,9 @@ function PhotoWithBoxes({ photo, items, selected, onSelect }: { photo: PhotoAnal
       </div>
     )
   }
-  const stroke = Math.max(2, Math.round(photo.width / 400))
   return (
     <div className="seen-photo" style={{ aspectRatio: `${photo.width} / ${photo.height}` }}>
       <img src={api.photoUrl(photo)} alt="" onError={() => setMissing(true)} data-testid="seen-img" />
-      <svg viewBox={`0 0 ${photo.width} ${photo.height}`} preserveAspectRatio="none" aria-hidden data-testid="seen-boxes">
-        {(photo.price_tags ?? []).map((b, i) => (
-          <rect key={`tag-${i}`} x={b.x1} y={b.y1} width={b.x2 - b.x1} height={b.y2 - b.y1} className="box box--tag" strokeWidth={stroke} />
-        ))}
-        {items.map((item) =>
-          item.boxes.map((b, i) => (
-            <rect
-              key={`${item.sku}-${i}`}
-              x={b.x1}
-              y={b.y1}
-              width={b.x2 - b.x1}
-              height={b.y2 - b.y1}
-              className={`box ${item.needs_review ? 'box--review' : 'box--ok'}${selected === item.sku ? ' is-selected' : selected ? ' is-dim' : ''}`}
-              strokeWidth={stroke}
-              onMouseEnter={() => onSelect(item.sku)}
-              onMouseLeave={() => onSelect(null)}
-              data-sku={item.sku}
-            />
-          )),
-        )}
-      </svg>
     </div>
   )
 }
