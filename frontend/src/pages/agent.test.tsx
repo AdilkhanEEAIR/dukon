@@ -416,6 +416,22 @@ describe('Живой поставщик в WhatsApp', () => {
     await waitFor(() => expect(within(screen.getByTestId('waiting-card')).queryByTestId('waiting-whatsapp')).toBeNull())
   })
 
+  it('второй раунд у того же поставщика: новая карточка ожидания снова с кнопками, хотя первый ответ уже пришёл', async () => {
+    const events = [...agentRun.events]
+    const replyIdx = events.findIndex((e) => e.kind === 'supplier_reply')
+    events.splice(replyIdx, 0, waitingEv as never)
+    const second = { ...waitingEv, step: 90, data: { ...waitingEv.data, token: 'tok-2', wa_url: 'https://wa.me/996555000011?text=Again' } }
+    events.splice(replyIdx + 2, 0, second as never)
+    const liveRun = { ...agentRun, status: 'running', events }
+    mockFetch({ ...happyRoutes, '/agent/runs/run-1/events': () => new Response(sseBody(liveRun), { status: 200, headers: { 'content-type': 'text/event-stream' } }), '/agent/runs/run-1': () => jsonResponse(liveRun) })
+    renderAt('/app/agent')
+    await userEvent.click(await screen.findByTestId('run-agent'))
+    await waitFor(() => expect(screen.getAllByTestId('waiting-card')).toHaveLength(2), { timeout: 8000 })
+    const [first, again] = screen.getAllByTestId('waiting-card')
+    expect(within(first).queryByTestId('waiting-whatsapp')).toBeNull()
+    expect(within(again).getByTestId('waiting-whatsapp')).toHaveAttribute('href', 'https://wa.me/996555000011?text=Again')
+  })
+
   it('свой поставщик: форма отправляет номер в международном формате, список помечает его «WhatsApp», удаление уходит на сервер', async () => {
     const fn = mockFetch({
       ...happyRoutes,

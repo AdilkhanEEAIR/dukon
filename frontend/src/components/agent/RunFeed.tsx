@@ -44,8 +44,12 @@ export function RunFeed({ events, run, suppliers, orders, approving, onApprove, 
   const minOrder = (id: string | null | undefined) => suppliers.find((s) => s.id === id)?.min_order_kgs
   const visible = useMemo(() => events.filter((e) => e.kind !== 'start'), [events])
   const finished = run && run.status !== 'running'
-  // Поставщики, от которых ответ уже пришёл: их карточка ожидания сворачивается.
-  const answered = useMemo(() => new Set(events.filter((e) => e.kind === 'supplier_reply').map((e) => e.supplier_id)), [events])
+  // Карточка ожидания сворачивается, только когда ответ пришёл ПОСЛЕ неё: во втором раунде у того же поставщика
+  // новая ссылка, и её кнопки нужны снова — раньше их прятал любой прошлый ответ этого поставщика.
+  const answeredAt = useMemo(
+    () => visible.map((ev, i) => visible.slice(i + 1).some((e) => e.kind === 'supplier_reply' && e.supplier_id === ev.supplier_id)),
+    [visible],
+  )
 
   return (
     <div className="feed" data-testid={testId} aria-live="polite">
@@ -60,7 +64,7 @@ export function RunFeed({ events, run, suppliers, orders, approving, onApprove, 
             className={`feed__item feed__item--${ev.kind}`}
             data-testid={`event-${ev.kind}`}
           >
-            <EventCard ev={ev} supplierName={supplierName} minOrder={minOrder} fmt={fmt} answered={answered.has(ev.supplier_id)} />
+            <EventCard ev={ev} supplierName={supplierName} minOrder={minOrder} fmt={fmt} answered={answeredAt[i]} />
           </motion.div>
         ))}
       </AnimatePresence>
