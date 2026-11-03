@@ -230,6 +230,38 @@ def test_live_channel_sends_via_whatsapp_api_when_enabled(storage):
     assert sent and sent[0][0] == "+996700123456" and events[0][1]["sent"] is True
 
 
+def test_live_channel_uses_approved_template_when_configured(storage):
+    """Шаблон Meta доставляет всегда, текст — только в 24-часовом окне: при настроенном шаблоне шлём шаблон."""
+    sent = []
+
+    class WA:
+        enabled = True
+        template = "dukon_order"
+
+        def send_text(self, to, text):
+            raise AssertionError("с шаблоном текст не шлём")
+
+        def send_template(self, to, params):
+            sent.append((to, params))
+            return "wamid.2"
+
+    chan = _channel(storage, whatsapp=WA(), timeout_s=0.05)
+    events = []
+    supplier = _jerry(channel="whatsapp")
+    chan.ask(_draft(supplier), supplier, lambda kind, text="", supplier_id=None, **d: events.append((kind, d)))
+    assert sent and sent[0][0] == "+996700123456"
+    shop, items, day, link = sent[0][1]
+    assert " x " in items and "/s/" in link and events[0][1]["sent"] is True
+
+
+def test_template_param_is_flat_and_bounded():
+    from app.whatsapp import template_param
+
+    assert template_param("a\n b\t\tc    d") == "a b c d"
+    assert template_param("") == "-"
+    assert len(template_param("x" * 1000)) == 300
+
+
 def test_live_channel_survives_whatsapp_outage(storage):
     class Down:
         enabled = True
@@ -317,6 +349,9 @@ def test_run_waits_for_link_reply_and_uses_it(client):
     # Поставщик открывает ссылку без кода устройства и отвечает: колы нет, остальное в среду.
     page = client.get(f"/s/{token}", headers={"x-device-id": ""})
     assert page.status_code == 200 and page.json()["status"] == "waiting" and "owner" not in page.json()
+    # Страница опрашивает сервер каждые 3 с: сотня опросов не должна отнимать у поставщика кнопку «Отправить»
+    for _ in range(100):
+        assert client.get(f"/s/{token}").status_code == 200
     sku = page.json()["draft"]["lines"][0]["sku"]
     r = client.post(f"/s/{token}/reply", json={"choice": "out", "rejected_skus": [sku], "text": "rest on Wednesday"})
     assert r.status_code == 200 and r.json()["status"] == "answered"

@@ -166,9 +166,18 @@ def register(
             shop = storage.get_shop(shop_id, x_device_id)
         return shop.name if shop else "Dukon"
 
-    whatsapp = WhatsAppClient(settings.whatsapp_token, settings.whatsapp_phone_id, settings.whatsapp_api_base)
+    whatsapp = WhatsAppClient(
+        settings.whatsapp_token,
+        settings.whatsapp_phone_id,
+        settings.whatsapp_api_base,
+        template=settings.whatsapp_template,
+        template_lang=settings.whatsapp_template_lang,
+    )
     # Страница поставщика открыта без входа — лимит на адрес, чтобы по ссылке нельзя было долбить сервер.
     reply_limiter = RateLimiter(60)
+    # Чтение разговора — отдельный лимит: страница поставщика опрашивает сервер каждые 3 с, и общий счётчик
+    # за три минуты съедал все 60 ответов в час — кнопка «Отправить» получала отказ. Ответы защищает reply_limiter.
+    read_limiter = RateLimiter(3000)
 
     def reply_parser():
         client = spark_client()
@@ -435,7 +444,7 @@ def register(
 
     @app.get("/s/{token}", response_model=SupplierThread)
     def supplier_thread(token: str, request: Request):
-        if not reply_limiter.check(client_ip(request, settings.trust_forwarded_for)):
+        if not read_limiter.check(client_ip(request, settings.trust_forwarded_for)):
             raise HTTPException(429, detail={"code": "rate_limited", "message": "Слишком много запросов"})
         return thread_or_404(token)
 
