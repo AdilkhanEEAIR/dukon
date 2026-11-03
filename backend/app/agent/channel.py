@@ -37,6 +37,13 @@ POLL_S = 1.0
 WEEKDAY_EN = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
+def order_template_params(draft: SupplierDraft, shop_name: str, link: str) -> list[str]:
+    """Переменные шаблона dukon_order: магазин, строки заказа, день доставки, ссылка на ответ."""
+    items = ", ".join(f"{line.name} x {line.qty}" for line in draft.lines if line.qty > 0) or "-"
+    day = WEEKDAY_EN[draft.delivery_day] if draft.delivery_day is not None else "as agreed"
+    return [shop_name, items, day, link]
+
+
 class Channel(Protocol):
     def ask(self, draft: SupplierDraft, supplier: Supplier, notify: Notify) -> tuple[SupplierReply, dict]: ...
 
@@ -148,7 +155,10 @@ class LiveChannel:
         sent = False
         if supplier.channel == "whatsapp" and self.whatsapp is not None:
             try:
-                self.whatsapp.send_text(supplier.phone, message)
+                if getattr(self.whatsapp, "template", ""):
+                    self.whatsapp.send_template(supplier.phone, order_template_params(draft, self.shop_name, link))
+                else:
+                    self.whatsapp.send_text(supplier.phone, message)
                 sent = True
             except Exception as exc:  # noqa: BLE001 — WhatsApp лёг: остаётся ссылка и кнопка «открыть WhatsApp»
                 log.warning("whatsapp send failed for %s: %s", supplier.id, exc)

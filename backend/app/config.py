@@ -77,7 +77,11 @@ class Settings(BaseSettings):
     whatsapp_phone_id: str = ""
     whatsapp_verify_token: str = ""
     whatsapp_app_secret: str = ""
-    whatsapp_api_base: str = "https://graph.facebook.com/v21.0"
+    whatsapp_api_base: str = "https://graph.facebook.com/v25.0"
+    # Одобренный шаблон заказа: обычный текст Meta доставляет только в 24-часовом окне после сообщения
+    # поставщика, шаблон — всегда. Пусто — шлём текстом, как раньше.
+    whatsapp_template: str = ""
+    whatsapp_template_lang: str = "en"
 
     @property
     def cors_list(self) -> list[str]:

@@ -60,29 +60,70 @@ def parse_incoming(payload: dict[str, Any]) -> list[dict[str, str]]:
 class WhatsAppClient:
     """Отправка текста через Graph API. Любая ошибка сети — исключение наружу: решает вызывающий."""
 
-    def __init__(self, token: str, phone_id: str, api_base: str = "https://graph.facebook.com/v21.0", timeout=10.0):
+    def __init__(
+        self,
+        token: str,
+        phone_id: str,
+        api_base: str = "https://graph.facebook.com/v25.0",
+        timeout=10.0,
+        template: str = "",
+        template_lang: str = "en",
+    ):
         self.token = token
         self.phone_id = phone_id
         self.api_base = api_base.rstrip("/")
         self.timeout = timeout
+        self.template = template.strip()
+        self.template_lang = template_lang.strip() or "en"
 
     @property
     def enabled(self) -> bool:
         return bool(self.token and self.phone_id)
 
-    def send_text(self, to_phone: str, text: str) -> str:
-        """Возвращает id сообщения WhatsApp."""
+    def _post(self, body: dict[str, Any]) -> str:
         url = f"{self.api_base}/{self.phone_id}/messages"
-        body = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": digits_only(to_phone),
-            "type": "text",
-            "text": {"preview_url": True, "body": text[:4096]},
-        }
         with httpx.Client(timeout=self.timeout) as http:
             resp = http.post(url, json=body, headers={"Authorization": f"Bearer {self.token}"})
         if resp.status_code >= 400:
             raise RuntimeError(f"whatsapp {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
-        return str(((data.get("messages") or [{}])[0]).get("id", ""))
+        wamid = str(((data.get("messages") or [{}])[0]).get("id", ""))
+        # Meta отвечает 200 даже на то, что потом не доставит: id в логе — единственный след для разбора
+        log.warning("whatsapp accepted %s to %s: %s", body.get("type"), body.get("to"), wamid[:40])
+        return wamid
+
+    def send_text(self, to_phone: str, text: str) -> str:
+        """Возвращает id сообщения WhatsApp."""
+        return self._post(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": digits_only(to_phone),
+                "type": "text",
+                "text": {"preview_url": True, "body": text[:4096]},
+            }
+        )
+
+    def send_template(self, to_phone: str, params: list[str]) -> str:
+        """Шаблон с переменными {{1}}…{{n}}: доставляется вне 24-часового окна, в отличие от текста."""
+        return self._post(
+            {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": digits_only(to_phone),
+                "type": "template",
+                "template": {
+                    "name": self.template,
+                    "language": {"code": self.template_lang},
+                    "components": [
+                        {"type": "body", "parameters": [{"type": "text", "text": template_param(p)} for p in params]}
+                    ],
+                },
+            }
+        )
+
+
+def template_param(value: str, limit: int = 300) -> str:
+    """Meta отклоняет переменные шаблона с переводами строк, табами и длинными рядами пробелов."""
+    flat = " ".join(str(value).split())
+    return (flat[: limit - 1] + "…") if len(flat) > limit else (flat or "-")
