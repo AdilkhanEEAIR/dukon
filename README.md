@@ -1,40 +1,64 @@
-# Dukon — the shelf-to-order agent for corner shops
+<p align="center">
+  <a href="https://youtu.be/avagyzTkrYQ"><img src="assets/thumbnail.png" alt="Dukon — 3-minute demo" width="800"></a>
+</p>
 
-> Photograph the shelf. Dukon finds every product, turns the empty spots into money per day and sends the agent to negotiate the restock with your suppliers in WhatsApp — within rules it cannot break.
+<h1 align="center">Dukon</h1>
+<p align="center"><b>Every empty shelf has a price. Dukon makes it visible — and refills it.</b></p>
 
-**Live app:** https://dukon-woad.vercel.app · **Video:** _coming with the submission_ · **Track:** Indie, *Build for Your World*
+<p align="center">
+  <a href="https://dukon-woad.vercel.app"><b>▶ Try it live, no sign-up</b></a> ·
+  <a href="https://youtu.be/avagyzTkrYQ"><b>🎬 Watch the 3-minute demo</b></a> ·
+  Meta Global AI Developer Hackathon 2026 · Indie track · <i>Build for Your World</i>
+</p>
 
-Built solo in Bishkek, Kyrgyzstan, during the **Meta Global AI Developer Hackathon 2026**. Every line in this repository was written during the hackathon.
+<p align="center">
+  <img alt="SAM 3.1" src="https://img.shields.io/badge/Meta-SAM%203.1-0866FF">
+  <img alt="Muse Spark" src="https://img.shields.io/badge/Meta-Muse%20Spark%201.3%20%C2%B7%201.2%20audio-0866FF">
+  <img alt="Muse Voice" src="https://img.shields.io/badge/Meta-Muse%20Voice%20Transcribe-0866FF">
+  <img alt="WhatsApp" src="https://img.shields.io/badge/WhatsApp-real%20suppliers-25D366">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-467%20passing-8FD6A7">
+  <img alt="Languages" src="https://img.shields.io/badge/languages-7-8FD6A7">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-9AA59E">
+</p>
 
-![The agent proposes an order, the owner's rule stops it, the agent fixes itself](assets/agent.png)
+**Snap the shelf with a phone. Dukon finds every product, turns each empty spot into money lost per day, and sends an AI agent to restock it with your real suppliers in WhatsApp — inside rules the model cannot break.** Built solo in Bishkek, Kyrgyzstan, in ten days. Every line in this repository was written during the hackathon.
+
+## The problem is global, and it is counted in trillions
+
+- **$1.7 trillion a year.** That is what retail loses to empty and overstocked shelves — **6.2 % of all retail sales on Earth** ([IHL Group, 2026](https://www.ihlservices.com/?p=43092)).
+- **1 product in 12** is missing from the shelf at any given moment. **1 shopper in 3** who meets an empty spot walks out and buys elsewhere (Gruen, Corsten & Bharadwaj, 2002).
+- **Nearly half of all retail sales in Asia** and **46 % in Central America** still go through small traditional shops ([Nielsen](https://www.marketing-interactive.com/nielsen-reports-half-of-retail-sales-in-asia-made-at-traditional-corner-stores), [NielsenIQ](https://www.revistaeyn.com/empresasymanagement/el-canal-tradicional-concentra-el-46-de-las-ventas-de-consumo-masivo-en-centroamerica-JA31028881)). India alone has **12+ million** of them.
+
+Big chains fight this with scanners, planograms and analysts. From Bishkek to Lagos to Mumbai, a corner shop has **one owner and one phone**. Nobody counts what is missing: the gap on the shelf quietly loses money every day until someone notices, calls the supplier and haggles.
+
+**One empty box of Snickers in a Bishkek supermarket, measured by Dukon itself: 567 som (≈ $6.49) lost per day — almost $200 a month, from ONE box.** A corner shop has hundreds of boxes.
+
+## What Dukon does
+
+<table>
+  <tr>
+    <td width="33%" valign="top"><img src="assets/seen.png" alt="What I saw"><br><b>👁 Sees.</b> SAM 3.1 finds every pack and price tag; Muse Spark reads the name, count and price — in any language the packaging is in. No barcodes, no hardware, no training.</td>
+    <td width="33%" valign="top"><img src="assets/report.png" alt="Walk report"><br><b>💸 Counts the money.</b> Walks are compared over time: what sold, how fast, what ran out, and what each empty spot costs per day — with a counter that keeps running while the shelf stays empty.</td>
+    <td width="33%" valign="top"><img src="assets/agent.png" alt="Agent"><br><b>🤝 Negotiates.</b> A Muse Spark agent drafts the order per supplier and writes to a real person in WhatsApp. The model proposes, the code decides: the owner's rules are enforced in plain Python.</td>
+  </tr>
+</table>
+
+| | |
+|---|---|
+| **Talks to real suppliers** | The order goes to the supplier in WhatsApp. They reply with one tap on a page the agent sends, or just write back — *"we can only deliver on Thursday"* — and the agent reads it, changes the order, reconfirms and closes the deal. Several rounds if needed. The owner only says yes. |
+| **Listens in Kyrgyz** | The owner does not type. She asks *"Эмне заказ кылыш керек?"* — Muse Spark 1.2 hears the audio itself, because most speech tools do not speak Kyrgyz. Seven interface languages: en · ru · ky · kk · es · de · fr. |
+| **Remembers prices** | Most corner shops have no price tags. Enter a price once, Dukon keeps it per shop and uses it for losses and orders. |
+| **Runs the shop** | Branches on a map, a notification the moment something runs out, one tap to approve, PDF / Excel / CSV for the accountant, light and dark themes. No accounts — a device code, nothing to sign up for. |
 
 ## Try it in one minute
 
 1. Open **https://dukon-woad.vercel.app** on your phone or laptop. No sign-up, no code.
-2. Tap **Try it on a real shelf**. A real shelf from a Bishkek supermarket goes through SAM 3.1 and Muse Spark live (the first run takes ~40 s, then it is cached).
+2. Tap **Try it on a real shelf**. Two real photos of the same Bishkek shelf — an afternoon and an evening walk — go through SAM 3.1 and Muse Spark (the first run takes ~40 s, then it is cached). The report shows what ran out and what it costs per day.
 3. Open **Agent → Negotiate the orders**. Watch the model propose, the owner's rule stop it, and the model fix itself.
 4. Add your own supplier with a WhatsApp number, run the agent again, and answer the agent from the supplier's side on the page it sends — or in WhatsApp.
 5. Press the microphone and ask *"what am I losing?"* in English, Russian, Kyrgyz or Kazakh.
 
 Rather see the recorded chain of three branches? **See the demo** on the landing page works even if the server is down.
-
-## Why
-
-Across Central Asia, South Asia, Latin America and Africa most everyday groceries are still sold from family-run corner shops (*дүкөн* in Kyrgyz). The owner is the buyer, the cashier and the stock clerk. Nobody counts what is missing: an empty spot on the shelf quietly loses money every day until someone notices, calls the supplier, and haggles over the phone. Enterprise retail has planograms, scanners and category managers. A corner shop has a phone.
-
-Dukon makes that phone enough.
-
-## What it does
-
-| | |
-|---|---|
-| **Sees** | Walk the shelves and take 3–6 photos. SAM 3.1 finds every pack; Muse Spark reads the name, the count and the price tag — in any language the packaging happens to be in. |
-| **Counts the money** | Walks are compared over time: what sold, what ran out, how fast, and what each empty spot costs per day. No price tags on your shelves? Enter a price once, Dukon remembers it. |
-| **Negotiates** | A Muse Spark agent drafts the order per supplier, asks each supplier, reads their answer and confirms — every step checked by code against the owner's rules. |
-| **Talks to real suppliers** | The order goes to the supplier in WhatsApp. They reply with one tap on a page the agent sends them, or just write back in the chat; the agent reads the answer ("Fanta is out, the rest on Thursday") and adjusts the order. |
-| **Listens** | The owner talks to the agent in seven interface languages; Kyrgyz and Kazakh are heard by Muse Spark 1.2 with audio input, because no speech model covers them. |
-
-![Walk report: what sold, what ran out, what it costs per day](assets/report.png)
 
 ## Meta models
 
@@ -95,8 +119,6 @@ Vision models are not deterministic: the same shelf read twice differs by a unit
 
 `python -m scripts.bench_vision photo.heic --stability` reads a photo twice and diffs the reads as walks 12 hours apart. Expected: **0 som/day, 0 changes**.
 
-![What I saw: SAM boxes, names, counts and price tags](assets/seen.png)
-
 ## The agent
 
 `POST /agent/run?walk_id=` starts a negotiation for the latest walk and streams the journal over SSE. The agent is Muse Spark with five tools (`backend/app/agent/workbench.py`):
@@ -110,7 +132,9 @@ Vision models are not deterministic: the same shelf read twice differs by a unit
 
 Owner's rules, per shop, editable in the UI or by talking to the agent: max order total per day, max days of stock per item, max units per line, no dairy deliveries on chosen weekdays, banned suppliers, a minimum discount before buying more than needed. They are pure functions with a test per rule, so the model cannot talk its way around them — and neither can the owner: `POST /orders/approve` runs the same checks.
 
-**Live suppliers in WhatsApp.** The owner adds suppliers with real WhatsApp numbers on the Agent screen. When the agent calls `ask_supplier` for one of them it opens a conversation (`agent/channel.py`): the order goes to the supplier in the run's language with a one-tap reply link (`/s/<token>`, no login — the link is the secret, 72 h); the journal shows a *waiting* card with **Open in WhatsApp**, or the server sends the message itself through the **WhatsApp Cloud API** when it is configured. The supplier answers with a button (all in stock / some items out / another day / cannot deliver) or in free text, on the page or straight in the WhatsApp chat (`POST /whatsapp/webhook`, signature-checked, matched to the open conversation by phone number). `agent/replies.py` turns the text into the same structure the simulator produces — weekdays in four languages, "Fanta is out", "5 % from 100 units", "below our minimum" — with Muse Spark as a JSON-schema fallback for sentences the rules do not understand; the verifier then runs on it exactly as on a simulated reply. When the agent confirms, the supplier sees the final order in the same conversation. If the supplier is silent or WhatsApp is down, the run does not hang: after a timeout the simulator answers, the owner still gets an order, and a late reply lands in the conversation log.
+**Live suppliers in WhatsApp.** The owner adds suppliers with real WhatsApp numbers on the Agent screen. When the agent calls `ask_supplier` for one of them it opens a conversation (`agent/channel.py`): the order goes to the supplier in the run's language with a one-tap reply link (`/s/<token>`, no login — the link is the secret, 72 h); the journal shows a *waiting* card with **Open in WhatsApp**, or the server sends the message itself through the **WhatsApp Cloud API** when it is configured. The supplier answers with a button (all in stock / some items out / another day / cannot deliver) or in free text, on the page or straight in the WhatsApp chat (`POST /whatsapp/webhook`, signature-checked, matched to the open conversation by phone number). `agent/replies.py` turns the text into the same structure the simulator produces — weekdays in four languages, "Fanta is out", "5 % from 100 units", "below our minimum" — with Muse Spark as a JSON-schema fallback for sentences the rules do not understand; the verifier then runs on it exactly as on a simulated reply. When the agent confirms, the supplier sees the final order in the same conversation. If the supplier is silent or WhatsApp is down, the run does not hang: after a timeout the simulator answers, the owner still gets an order, and a late reply lands in the conversation log. A negotiation can take several rounds with the same supplier — for example, the supplier moves the delivery to Thursday and the agent asks to reconfirm — and every round gets its own reply link.
+
+> **About WhatsApp in the demo video.** The Cloud API path is implemented and covered by tests: sending, the signed webhook and reply matching. Meta's Graph API accepted every send (`wamid…`), but during the hackathon Meta restricted my brand-new, not yet verified WhatsApp Business account (`health_status`: WABA *BANNED*, error 141014), so messages were not delivered. In the video the same order therefore goes out through the **reply-link channel**: Dukon writes the message, the owner sends it from her own WhatsApp with one tap, and the supplier — a real person — answers on the link. Once the business account is verified, the server sends the message itself with no code changes.
 
 **Conversation and voice.** `POST /agent/chat` answers questions about the walk and can change a rule or start the negotiation from a sentence ("no dairy on Friday", "order everything"). The agent answers in the language of the question, not of the interface. On the Agent screen the owner can speak: the recording stops by itself after three seconds of silence; Kyrgyz and Kazakh go to Muse Spark 1.2 with audio (with the shop's product names as hints), the other languages to Muse Voice Transcribe or the browser. Replies are read aloud in the reply's language; for Kyrgyz the nearest Cyrillic voice is used with ө/ү/ң mapped to letters it can say.
 
@@ -180,7 +204,20 @@ cd backend;  python -m pytest -q;  ruff check app tests
 cd frontend; npm run check        # typecheck + lint + tests + build
 ```
 
-189 backend tests, 274 frontend tests: the vision pipeline on fixtures, the diff guards, every owner's rule, the agent loop with a scripted brain, live supplier conversations and reply parsing, the WhatsApp webhook, tenant isolation, exports, and the UI in seven languages.
+192 backend tests, 275 frontend tests: the vision pipeline on fixtures, the diff guards, every owner's rule, the agent loop with a scripted brain, live supplier conversations and reply parsing, the WhatsApp webhook, tenant isolation, exports, and the UI in seven languages.
+
+## Where this goes next
+
+Dukon works today on one shelf in Bishkek. The pipeline is shelf-agnostic by design, and the next steps are already mapped:
+
+| Next | What it unlocks |
+|---|---|
+| 🎥 **Video walks** | Walk the aisle with the camera on — SAM 3.1 tracks every pack frame by frame, no photos to pick. |
+| 🕶️ **Ray-Ban Meta glasses** | The owner looks at the shelf and asks what she is losing. Hands free, no phone out. |
+| ⚔️ **Price race** | Several suppliers compete in WhatsApp for every order — the shop always gets the best deal. |
+| 🏪 **Pilot in real corner shops** | Starting in Bishkek, with the shops the product was built for; then every market where shops still run on guesswork. |
+
+Millions of small shops run on guesswork. Dukon turns guesswork into money they can see.
 
 ## Repository
 
